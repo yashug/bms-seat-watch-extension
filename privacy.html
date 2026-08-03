@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Seat Watch — what it can see</title>
+<link rel="stylesheet" href="ui.css">
+<style>
+  body { padding-bottom: 70px; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 0 24px; }
+  header.beam { padding: 48px 0 28px; }
+  header h1 { margin: 24px 0 8px; font: 650 26px/1.15 var(--sans); letter-spacing: -.024em; }
+  header p { margin: 0; color: var(--ink-2); font-size: 14px; }
+  h2 { margin: 30px 0 10px; font: 600 15px/1.3 var(--sans); }
+  p, li { color: var(--ink-2); font-size: 13.5px; line-height: 1.65; }
+  p { margin: 0 0 12px; }
+  ul { margin: 0 0 12px; padding-left: 20px; }
+  li { margin-bottom: 7px; }
+  b { color: var(--ink); font-weight: 600; }
+  code { font: 12px var(--mono); background: var(--sunk); color: var(--ink);
+         padding: 2px 6px; border-radius: 4px; }
+  .stamp { margin-top: 34px; padding-top: 16px; border-top: 1px solid var(--edge);
+           color: var(--ink-3); font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="beam">
+    <div class="beam__bar"></div>
+    <h1>What this extension can see</h1>
+    <p>Short version: your settings stay in your browser, and nothing is sent
+       anywhere except the alert destinations you set up yourself.</p>
+  </header>
+
+  <h2>There is no server</h2>
+  <p>This extension has no backend. Nobody operates a service behind it, so there is
+     nowhere for your data to be collected, sold, or breached. Everything it knows
+     lives in <code>chrome.storage.local</code> on your own machine.</p>
+
+  <h2>What it stores</h2>
+  <ul>
+    <li>The seat-map addresses you chose to watch, and a label for each.</li>
+    <li>What the last check found — seat counts, which blocks were free, and a
+        recent history of how many seats were free over time.</li>
+    <li>Your filter settings and how often to check.</li>
+    <li>Your Telegram bot token and chat ID, or your webhook address, if you set
+        them up. These are stored unencrypted, readable by anything with access to
+        your Chrome profile. Fine for a bot you made for this; don't reuse one that
+        does anything important.</li>
+  </ul>
+
+  <h2>What leaves your machine</h2>
+  <ul>
+    <li><b>BookMyShow</b> — pages are loaded in your own browser, in your own logged-in
+        session, exactly as if you'd opened them yourself. No credentials are read
+        or transmitted.</li>
+    <li><b>Telegram</b>, only if you configure it, and only the alert text.</li>
+    <li><b>Your webhook address</b>, only if you configure one, and only the alert text.
+        Chrome asks your permission for that specific address before it is used.</li>
+  </ul>
+  <p>There is no analytics, no telemetry, no crash reporting and no third-party
+     script of any kind. The extension bundles no remote code — the content security
+     policy blocks it.</p>
+
+  <h2>What it deliberately does not read</h2>
+  <p>BookMyShow's pages carry your account details — name, email, mobile number and a
+     session token — in the same page data as the showtimes. The code does not descend
+     into those parts of it at all, so that information is never read rather than
+     read-and-discarded. There is a test asserting this, using a value that trips if
+     anything touches it.</p>
+  <p>The <b>tabs</b> permission is not requested. The extension cannot read the
+     addresses or titles of your other tabs, and never sees your browsing history.</p>
+
+  <h2>Removing it</h2>
+  <p>Uninstalling deletes everything above. There is no account to close and nothing
+     retained elsewhere, because there is no elsewhere.</p>
+
+  <div class="stamp">
+    Seat Watch is free and open source. If something here doesn't match what the code
+    does, the code is the bug — please report it.
+  </div>
+
+</div>
+</body>
+</html>

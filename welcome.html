@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Seat Watch — start here</title>
+<link rel="stylesheet" href="ui.css">
+<style>
+  body { padding-bottom: 80px; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 0 24px; }
+
+  header.beam { padding: 56px 0 34px; }
+  header h1 { margin: 26px 0 8px; font: 650 30px/1.1 var(--sans); letter-spacing: -.026em; }
+  header p { margin: 0 0 12px; color: var(--ink-2); font-size: 15px; max-width: 46ch; }
+  header p:last-child { margin-bottom: 0; }
+  header b { color: var(--ink); font-weight: 600; }
+  header i { font-style: italic; }
+
+  /* Numbered, because this genuinely is a sequence — each step needs the one
+     before it. The numerals are the structure, so they carry the type weight. */
+  ol.steps { list-style: none; margin: 30px 0 0; padding: 0;
+             border-top: 1px solid var(--edge); counter-reset: step; }
+  ol.steps li { display: flex; gap: 18px; padding: 22px 0;
+                border-bottom: 1px solid var(--edge); counter-increment: step; }
+  ol.steps li::before {
+    content: counter(step);
+    flex: none; width: 26px;
+    font: 500 20px/1 var(--mono); color: var(--ink-3);
+    font-variant-numeric: tabular-nums;
+  }
+  ol.steps h2 { margin: 0 0 6px; font: 600 15px/1.3 var(--sans); }
+  ol.steps p { margin: 0 0 9px; color: var(--ink-2); font-size: 13.5px; line-height: 1.6; }
+  ol.steps p:last-child { margin-bottom: 0; }
+  ol.steps .body { flex: 1; min-width: 0; }
+  ol.steps b { color: var(--ink); font-weight: 600; }
+
+  .warn { margin-top: 30px; padding: 16px 18px;
+          border: 1px solid rgba(23, 145, 92, .28); border-radius: var(--r);
+          background: var(--open-2); }
+  .warn h2 { margin: 0 0 7px; font: 600 14px/1.3 var(--sans); color: var(--open); }
+  .warn p { margin: 0; color: var(--ink-2); font-size: 13px; line-height: 1.6; }
+
+  .go-row { display: flex; align-items: center; gap: 12px; margin: 30px 0 10px; }
+  .go-row a { color: var(--ink-2); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="beam">
+    <div class="beam__bar"></div>
+    <h1>Seat Watch is installed</h1>
+    <p><b>A big release is never as sold out as it looks.</b> Cinemas hold seats
+       back — for distributors, for staff, for whoever might still call — and when
+       nobody calls, those seats go back on sale. Often in the last hours before
+       the show, sometimes minutes before it.</p>
+    <p>Nobody announces it. The page just quietly changes, and by the time you
+       think to look again the good rows are gone. This sits on that page for you
+       and tells you the moment it happens.</p>
+    <p>The other reason to use it is simpler: you want <i>that</i> screen. The one
+       with the right sound, the right rake, the seats you'd actually choose. A
+       ticket somewhere else isn't the same evening out.</p>
+  </header>
+
+  <ol class="steps">
+    <li>
+      <div class="body">
+        <h2>Find a show on BookMyShow</h2>
+        <p>Open a cinema's showtimes page — the one listing every film and time.
+           Every showtime picks up a small <b>+</b> in its corner.</p>
+      </div>
+    </li>
+    <li>
+      <div class="body">
+        <h2>Click the + on the shows you want</h2>
+        <p>Including the sold-out ones. A greyed-out showtime is exactly the case this
+           is for: its blocked seats may be released later, and BookMyShow's own
+           sold-out flag is often behind the real seat map.</p>
+      </div>
+    </li>
+    <li>
+      <div class="body">
+        <h2>Leave Chrome running, and awake</h2>
+        <p>Checks get more frequent as showtime approaches — every 30 minutes a week
+           out, every 90 seconds in the last three hours. You'll get a desktop
+           notification, and Telegram or a webhook if you set one up.</p>
+        <p><b>A sleeping machine checks nothing.</b> The release you're waiting for
+           usually lands late in the evening, which is exactly when a laptop is most
+           likely to have nodded off. See below.</p>
+      </div>
+    </li>
+  </ol>
+
+  <div class="warn">
+    <h2>One thing that will look odd</h2>
+    <p>A small BookMyShow window may open in a corner of your screen and stay there.
+       That's the watcher. <b>Leave it on screen</b> — behind other windows is fine,
+       minimised is not. BookMyShow only draws the seat map when its page is visible,
+       so a hidden window reads nothing. If you already have the seat map open
+       yourself, that tab gets used instead and no window appears at all.</p>
+  </div>
+
+  <div class="awake">
+    <h2>Keep the machine awake</h2>
+    <p>Nothing runs while the machine sleeps, and you find out afterwards. Keep the
+       display on too: Chrome treats a window it thinks nobody can see much like a
+       minimised one, and a dark screen can be enough. Plug in first — both recipes
+       below assume it.</p>
+
+    <div class="awake__cols">
+      <div class="awake__col">
+        <h3>macOS</h3>
+        <p class="step">Run this in Terminal and leave the window open. Ctrl-C ends it,
+           and so does closing the window — nothing is left switched on afterwards.</p>
+        <code>caffeinate -dis</code>
+        <p class="step">Or, without the Terminal: <b>System Settings → Lock Screen</b>,
+           set <i>Turn display off on power adapter when inactive</i> to <b>Never</b>, and
+           check <b>Battery → Options</b> for <i>Prevent automatic sleeping</i>.</p>
+        <p class="lid">Closing the lid still sleeps a Mac, whatever else you set —
+           unless a display, or power and an external keyboard, is attached.</p>
+      </div>
+
+      <div class="awake__col">
+        <h3>Windows</h3>
+        <p class="step"><b>Settings → System → Power &amp; battery → Screen and sleep</b>,
+           and set <i>When plugged in, put my device to sleep after</i> to <b>Never</b>.</p>
+        <p class="step">Or in a terminal, which does both at once:</p>
+        <code>powercfg /change standby-timeout-ac 0
+powercfg /change monitor-timeout-ac 0</code>
+        <p class="lid">Closing the lid sleeps it too: <b>Control Panel → Power Options →
+           Choose what closing the lid does</b>, set the plugged-in column to
+           <i>Do nothing</i>.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="go-row">
+    <button class="go" id="open-settings">Open settings</button>
+    <a href="privacy.html" target="_blank">What this extension can see</a>
+  </div>
+
+</div>
+<script src="welcome.js"></script>
+</body>
+</html>

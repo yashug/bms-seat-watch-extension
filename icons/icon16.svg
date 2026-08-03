@@ -1,0 +1,9 @@
+<!-- BMS Seat Watch. A hall seen from the back: the screen, rows that widen and
+     curve away from it, and the one adjacent pair that has come free. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <rect width="16" height="16" rx="3.616" fill="#16202F"/>
+  <rect x="3.1" y="4.6" width="4.2" height="3.4" rx="1.1" fill="#55637A"/>
+  <rect x="8.7" y="4.6" width="4.2" height="3.4" rx="1.1" fill="#55637A"/>
+  <rect x="3.1" y="9.8" width="4.2" height="3.4" rx="1.1" fill="#26B277"/>
+  <rect x="8.7" y="9.8" width="4.2" height="3.4" rx="1.1" fill="#26B277"/>
+</svg>

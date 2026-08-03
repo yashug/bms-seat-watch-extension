@@ -1,0 +1,98 @@
+/**
+ * The Watch control, living on BookMyShow's own pages.
+ *
+ * Everything here is scoped to .bms-seat-watch-* and sits inside the showtime
+ * box, so it can't reflow the listing. Values are literal rather than tokens
+ * from ui.css: this stylesheet is injected into someone else's document, and
+ * inheriting from it — or leaking into it — would be a bug either way.
+ */
+
+/* Bottom-right, not top-right: BookMyShow puts its own late-night moon badge in
+   the top corner of a chip, and two badges in one corner is nobody's idea of a
+   good time. The gap below a chip is empty on both listing layouts. */
+.bms-seat-watch-btn {
+  position: absolute;
+  bottom: -7px;
+  right: -7px;
+  z-index: 20;
+
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border: 1px solid #7CBFA0;
+  border-radius: 50%;
+  background: #EAF6F0;
+  color: #106B42;
+
+  font: 600 12px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  text-align: center;
+  cursor: pointer;
+  opacity: .78;
+  box-shadow: 0 1px 3px rgba(22, 32, 47, .16);
+  transition: opacity .12s ease, transform .12s ease, background .12s ease;
+}
+
+.bms-seat-watch-btn:hover {
+  opacity: 1;
+  transform: scale(1.14);
+  background: #D6EDE1;
+}
+
+.bms-seat-watch-btn.is-on {
+  opacity: 1;
+  background: #17915C;
+  border-color: #17915C;
+  color: #FFFFFF;
+}
+
+.bms-seat-watch-btn:focus-visible {
+  outline: 2px solid #17915C;
+  outline-offset: 2px;
+  opacity: 1;
+}
+
+/* A card with a real shadow, so it reads as something laid over the page
+   rather than as part of it — the page is light too, so lift does the work
+   that a dark fill used to. */
+.bms-seat-watch-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 26px;
+  z-index: 2147483000;
+
+  transform: translate(-50%, 14px);
+  padding: 11px 17px;
+  border: 1px solid #CFD8E6;
+  border-radius: 10px;
+  background: #FFFFFF;
+  color: #16202F;
+
+  font: 500 13px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  box-shadow: 0 10px 30px rgba(22, 32, 47, .16);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .18s ease, transform .18s ease;
+}
+
+.bms-seat-watch-toast.is-up {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+
+@media (prefers-reduced-motion: reduce) {
+  .bms-seat-watch-btn,
+  .bms-seat-watch-toast { transition: none; }
+  .bms-seat-watch-btn:hover { transform: none; }
+}
+
+/* Severed from the extension: still there, visibly not working. Kept clickable
+   so the click can explain itself — a disabled button would just be ignored. */
+.bms-seat-watch-btn.is-stale {
+  opacity: .34;
+  border-color: var(--edge-2, #CFD8E6);
+  background: #EDF0F5;
+  color: #8894A8;
+  cursor: not-allowed;
+}
+.bms-seat-watch-btn.is-stale:hover { transform: none; opacity: .34; background: #EDF0F5; }

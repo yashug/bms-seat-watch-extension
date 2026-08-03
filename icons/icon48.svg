@@ -1,0 +1,18 @@
+<!-- BMS Seat Watch. A hall seen from the back: the screen, rows that widen and
+     curve away from it, and the one adjacent pair that has come free. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+  <rect width="48" height="48" rx="10.848" fill="#16202F"/>
+  <rect x="11" y="10.5" width="26" height="2.2" rx="1.1" fill="#3B4859"/>
+  <rect x="11.12" y="17.6" width="5.12" height="3.92" rx="1.04" fill="#55637A"/>
+  <rect x="18" y="16.6222" width="5.12" height="3.92" rx="1.04" fill="#55637A"/>
+  <rect x="24.88" y="16.6222" width="5.12" height="3.92" rx="1.04" fill="#55637A"/>
+  <rect x="31.76" y="17.6" width="5.12" height="3.92" rx="1.04" fill="#55637A"/>
+  <rect x="9.51" y="25.2" width="5.76" height="4.41" rx="1.17" fill="#55637A"/>
+  <rect x="17.25" y="24.2222" width="5.76" height="4.41" rx="1.17" fill="#26B277"/>
+  <rect x="24.99" y="24.2222" width="5.76" height="4.41" rx="1.17" fill="#26B277"/>
+  <rect x="32.73" y="25.2" width="5.76" height="4.41" rx="1.17" fill="#55637A"/>
+  <rect x="7.9" y="32.8" width="6.4" height="4.9" rx="1.3" fill="#55637A"/>
+  <rect x="16.5" y="31.8222" width="6.4" height="4.9" rx="1.3" fill="#55637A"/>
+  <rect x="25.1" y="31.8222" width="6.4" height="4.9" rx="1.3" fill="#55637A"/>
+  <rect x="33.7" y="32.8" width="6.4" height="4.9" rx="1.3" fill="#55637A"/>
+</svg>
