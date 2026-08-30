@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Seat Watch</title>
-<link rel="stylesheet" href="ui.css">
+<link rel="stylesheet" href="../../../ui.css">
 <style>
   body { width: 384px; }
 
@@ -103,18 +103,6 @@
   .empty p { margin: 0 0 16px; color: var(--ink-2); font-size: 12px; line-height: 1.55; }
   .empty b { color: var(--open); font-weight: 700; }
 
-  /* --- what's new ----------------------------------------------------- */
-  /* One line, once, in the amber the release half wears everywhere else. It
-     sits above everything because it is about something the user does not know
-     is there — and it goes away for good the moment it is acted on. */
-  .new { display: flex; align-items: center; gap: 10px;
-         padding: 10px 14px; background: #FDF6E9;
-         border-bottom: 1px solid rgba(185, 130, 42, .28); }
-  .new .msg { flex: 1; min-width: 0; font-size: 12px; line-height: 1.35; color: #6B4A10; }
-  .new .msg b { color: #4A330A; font-weight: 650; }
-  .new button { flex: none; padding: 5px 9px; font-size: 11px; }
-  .new .x { padding: 5px 7px; color: var(--ink-3); }
-
   /* --- upcoming ------------------------------------------------------- */
   /* Films being watched for a release, above the seat cards. They are the
      earlier half of the same story — you watch a film until it goes on sale,
@@ -151,8 +139,6 @@
     <span class="eyebrow count" id="tally"></span>
   </div>
 
-  <div class="new" id="new" hidden></div>
-
   <div class="up" id="up" hidden></div>
 
   <div class="shows" id="shows"></div>
@@ -163,6 +149,28 @@
     <button id="opts">Settings</button>
   </div>
 
-<script src="popup.js"></script>
+<script>
+// Anchored, not frozen. "checked 2m ago" has to mean the same thing on every
+// rebuild, but the hall and the trend line are drawn by an animation that reads
+// the clock — pin it to a constant and progress never leaves zero, so the
+// canvas renders empty. This starts at the fixture's date and then ticks.
+(function () { var BASE = 1788356400000, t0 = performance.now();
+  Date.now = function () { return BASE + (performance.now() - t0); }; })();
+window.chrome = {
+  storage: { local: { get: async () => ({"running": true, "release": {"intervalMinutes": 10, "dormancyDays": 7, "premiereDays": 1}, "releases": [{"id": "HYD:EG1", "title": "Ramba Oorvasi Menaka", "regionCode": "HYD", "venues": ["ALUC", "AMBH"], "releaseDate": "20260911"}, {"id": "HYD:EG2", "title": "Once More", "regionCode": "HYD", "venues": ["ALUC"], "releaseDate": "20260904"}], "releaseState": {"HYD:EG1": {"last": {"at": 1788356270000, "mode": "venues", "checked": 2}}, "HYD:EG2": {"last": {"at": 1788356304000, "mode": "venues", "checked": 1}}}, "shows": [{"url": "https://in.bookmyshow.com/movies/hyderabad/seat-layout/ET00505091/ALUC/54321/20260902", "label": "Spider-Man: Brand New Day \u00b7 English"}], "state": {"https://in.bookmyshow.com/movies/hyderabad/seat-layout/ET00505091/ALUC/54321/20260902": {"nextCheck": 1788356457000, "showtimeTs": 1788362100000, "notified": [], "history": [{"t": 1788353100000, "free": 11}, {"t": 1788353400000, "free": 12}, {"t": 1788353700000, "free": 12}, {"t": 1788354000000, "free": 13}, {"t": 1788354300000, "free": 13}, {"t": 1788354600000, "free": 14}, {"t": 1788354900000, "free": 17}, {"t": 1788355200000, "free": 17}, {"t": 1788355500000, "free": 18}, {"t": 1788355800000, "free": 20}, {"t": 1788356100000, "free": 20}, {"t": 1788356400000, "free": 20}], "last": {"at": 1788356367000, "title": "Spider-Man: Brand New Day \u00b7 English", "subtitle": "ALLU Cinemas: Kokapet | Wed, 02 September, 2026 | 03:15 PM", "available": 20, "total": 189, "blocks": 2, "minsUntil": 95, "alerted": 2, "hits": [{"row": "G", "price": 240, "size": 4, "from": 9, "to": 12, "bestseller": true}, {"row": "H", "price": 240, "size": 3, "from": 10, "to": 12, "bestseller": false}], "map": {"cols": 23, "rows": [{"row": "A", "cells": "###o###.#######.##o####"}, {"row": "B", "cells": "#######.###o###.#######"}, {"row": "C", "cells": "#####o#.#######.####o##"}, {"row": "D", "cells": "#o#####.#######.#######"}, {"row": "E", "cells": "#######.#####o#.#o#####"}, {"row": "F", "cells": "##o####.#######.#####o#"}, {"row": "G", "cells": "#######.#oooo##.#######"}, {"row": "H", "cells": "#######.##ooo##.#######"}, {"row": "J", "cells": "######o.####o##.###o###"}], "marks": [[6, 9, 12], [7, 10, 12]]}}}}}), set: async () => {} },
+             onChanged: { addListener() {} } },
+  runtime: {
+    openOptionsPage() {},
+    sendMessage: async (m) =>
+        m.type === 'regions' ? { ok: true, regions: [{"code": "HYD", "name": "Hyderabad", "slug": "hyderabad"}, {"code": "MUMBAI", "name": "Mumbai", "slug": "mumbai"}, {"code": "BANG", "name": "Bengaluru", "slug": "bengaluru"}], fallback: [{"code": "HYD", "name": "Hyderabad", "slug": "hyderabad"}, {"code": "MUMBAI", "name": "Mumbai", "slug": "mumbai"}, {"code": "BANG", "name": "Bengaluru", "slug": "bengaluru"}] }
+      : m.type === 'venues'  ? { ok: true, venues: [{"code": "ALUC", "name": "ALLU Cinemas: Kokapet", "dates": ["1"]}, {"code": "AMBH", "name": "AMB Cinemas: Gachibowli", "dates": ["1"]}, {"code": "AACN", "name": "Aparna Cinemas: Nallagandla", "dates": ["1"]}, {"code": "CPMH", "name": "Cinepolis: Lulu Mall, Hyderabad", "dates": ["1"]}, {"code": "ASHN", "name": "Asian Cinemart: RC Puram", "dates": []}, {"code": "PVTP", "name": "PVR: Preston, Gachibowli", "dates": ["1"]}] }
+      : { ok: true, releases: [] },
+  },
+  permissions: { contains: async () => true, request: async () => true },
+  action: { setBadgeText() {}, setBadgeBackgroundColor() {} },
+};
+
+</script>
+<script src="../../../popup.js"></script>
 </body>
 </html>

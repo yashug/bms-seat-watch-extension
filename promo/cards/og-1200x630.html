@@ -1,0 +1,37 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Seat Watch — OG card</title>
+<link rel="stylesheet" href="card.css">
+<body>
+<div class="card card--og">
+
+  <div style="flex:1; display:flex; align-items:center; justify-content:space-between; gap:56px">
+    <div style="display:flex; flex-direction:column; gap:22px">
+      <div class="kicker">Seat Watch for BookMyShow</div>
+      <h1>Sold out<br>isn't <span class="hl">final</span>.</h1>
+      <p class="sub">Cinemas release held seats <b>1&ndash;3 hours before showtime</b>. Get pinged the moment a block opens up.</p>
+    </div>
+
+    <div class="hall" id="hall"></div>
+  </div>
+
+  <div class="foot">
+    <div class="brand">
+      <img src="../../icon128.png" alt="">
+      <div>
+        <div class="name">Seat Watch</div>
+        <div class="where">Free on the Chrome Web Store</div>
+      </div>
+    </div>
+    <div class="pill">4 together &middot; middle of the hall</div>
+  </div>
+
+</div>
+
+<script src="hall.js"></script>
+<script>
+  drawHall(document.getElementById('hall'), {
+    rows: 10, seat: 12, gap: 4, aisle: 22,
+    match: { row: 6, block: 1, from: 4, len: 4 },
+  });
+</script>

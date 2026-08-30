@@ -39,6 +39,16 @@
   .warn h2 { margin: 0 0 7px; font: 600 14px/1.3 var(--sans); color: var(--open); }
   .warn p { margin: 0; color: var(--ink-2); font-size: 13px; line-height: 1.6; }
 
+  /* The second half of the extension, in the amber the bell wears on BookMyShow.
+     Green means "there is something here now"; amber means "not yet, but you'll
+     be told" — the same distinction the two features actually are. */
+  .also { margin-top: 30px; padding: 16px 18px;
+          border: 1px solid rgba(185, 130, 42, .32); border-radius: var(--r);
+          background: #FDF6E9; }
+  .also h2 { margin: 0 0 7px; font: 600 14px/1.3 var(--sans); color: #8A5F14; }
+  .also p { margin: 0 0 9px; color: var(--ink-2); font-size: 13px; line-height: 1.6; }
+  .also p:last-child { margin-bottom: 0; }
+
   .go-row { display: flex; align-items: center; gap: 12px; margin: 30px 0 10px; }
   .go-row a { color: var(--ink-2); font-size: 13px; }
 </style>
@@ -90,10 +100,25 @@
     </li>
   </ol>
 
+  <div class="also">
+    <h2>The other half: films that aren't on sale yet</h2>
+    <p>The <b>+</b> needs a showtime to exist before you can click it, and for a big
+       opening weekend that is often already too late. So BookMyShow's
+       <b>upcoming movies</b> list gets a <b>🔔</b> on every film instead. Click it weeks
+       early — there is nothing to book yet, and that is the point.</p>
+    <p>Pick the cinemas you'd actually go to in <b>Settings → Release watch</b>, and you're
+       told which of them opened rather than just that it's on sale somewhere. It watches
+       the night before release too, for premieres and 1am shows — often the first tickets
+       to go.</p>
+    <p><b>This half needs no window and no display.</b> Everything below is about reading
+       seat maps, which only works on screen. Watching for a film to go on sale reads
+       plain listings instead, so Chrome merely has to be running.</p>
+  </div>
+
   <div class="warn">
     <h2>One thing that will look odd</h2>
-    <p>A small BookMyShow window may open in a corner of your screen and stay there.
-       That's the watcher. <b>Leave it on screen</b> — behind other windows is fine,
+    <p><i>Watching a seat map only.</i> A small BookMyShow window may open in a corner of
+       your screen and stay there. That's the watcher. <b>Leave it on screen</b> — behind other windows is fine,
        minimised is not. BookMyShow only draws the seat map when its page is visible,
        so a hidden window reads nothing. If you already have the seat map open
        yourself, that tab gets used instead and no window appears at all.</p>
@@ -101,8 +126,9 @@
 
   <div class="awake">
     <h2>Keep the machine awake</h2>
-    <p>Nothing runs while the machine sleeps, and you find out afterwards. Keep the
-       display on too: Chrome treats a window it thinks nobody can see much like a
+    <p>Nothing runs while the machine sleeps, and you find out afterwards — that part
+       applies to both halves. The display only has to stay on for seat maps. Keep it on
+       anyway: Chrome treats a window it thinks nobody can see much like a
        minimised one, and a dark screen can be enough. Plug in first — both recipes
        below assume it.</p>
 

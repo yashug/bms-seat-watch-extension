@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Seat Watch — Settings</title>
-<link rel="stylesheet" href="ui.css">
+<link rel="stylesheet" href="../../../ui.css">
 <style>
   body { padding-bottom: 124px; }
 
@@ -741,6 +741,52 @@
   </div>
 </div>
 
-<script src="options.js"></script>
+<script>
+// Anchored, not frozen. "checked 2m ago" has to mean the same thing on every
+// rebuild, but the hall and the trend line are drawn by an animation that reads
+// the clock — pin it to a constant and progress never leaves zero, so the
+// canvas renders empty. This starts at the fixture's date and then ticks.
+(function () { var BASE = 1788356400000, t0 = performance.now();
+  Date.now = function () { return BASE + (performance.now() - t0); }; })();
+window.chrome = {
+  storage: { local: { get: async () => ({"city": {"code": "HYD", "name": "Hyderabad", "slug": "hyderabad"}, "release": {"intervalMinutes": 10, "dormancyDays": 7, "premiereDays": 1, "defaultVenues": {"HYD": ["ALUC", "AMBH"]}}, "releases": [], "shows": [{}], "telegram": {"botToken": "8123456789:AAH7q2Xk9pLm", "chatId": "987654321, -1001234567890"}, "defaults": {"minAdjacent": 4, "maxOffCentre": 0.5, "minFromScreen": 0.25}}), set: async () => {} },
+             onChanged: { addListener() {} } },
+  runtime: {
+    openOptionsPage() {},
+    sendMessage: async (m) =>
+        m.type === 'regions' ? { ok: true, regions: [{"code": "HYD", "name": "Hyderabad", "slug": "hyderabad"}, {"code": "MUMBAI", "name": "Mumbai", "slug": "mumbai"}, {"code": "BANG", "name": "Bengaluru", "slug": "bengaluru"}], fallback: [{"code": "HYD", "name": "Hyderabad", "slug": "hyderabad"}, {"code": "MUMBAI", "name": "Mumbai", "slug": "mumbai"}, {"code": "BANG", "name": "Bengaluru", "slug": "bengaluru"}] }
+      : m.type === 'venues'  ? { ok: true, venues: [{"code": "ALUC", "name": "ALLU Cinemas: Kokapet", "dates": ["1"]}, {"code": "AMBH", "name": "AMB Cinemas: Gachibowli", "dates": ["1"]}, {"code": "AACN", "name": "Aparna Cinemas: Nallagandla", "dates": ["1"]}, {"code": "CPMH", "name": "Cinepolis: Lulu Mall, Hyderabad", "dates": ["1"]}, {"code": "ASHN", "name": "Asian Cinemart: RC Puram", "dates": []}, {"code": "PVTP", "name": "PVR: Preston, Gachibowli", "dates": ["1"]}] }
+      : { ok: true, releases: [] },
+  },
+  permissions: { contains: async () => true, request: async () => true },
+  action: { setBadgeText() {}, setBadgeBackgroundColor() {} },
+};
+
+// Scroll to a named element rather than to a pixel offset. The tab bar is
+// sticky, so it covers the top of the frame and a raw offset has to guess how
+// much — which is how three of these ended up cropped through the middle of a
+// field. Naming the element and clearing the bar's height is exact, and it
+// survives the page's layout changing underneath it.
+addEventListener('load', function () {
+  var q = new URLSearchParams(location.search);
+  setTimeout(function () {
+    var tab = q.get('tab');
+    if (tab) { var b = document.querySelector('.tab[data-panel=' + tab + ']'); if (b) b.click(); }
+
+    var sel = q.get('focus');
+    if (sel) {
+      var el = document.querySelector(decodeURIComponent(sel));
+      var bar = document.querySelector('.tabs');
+      if (el) {
+        var clear = (bar ? bar.getBoundingClientRect().height : 0) + 34;
+        window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - clear);
+      }
+    }
+    document.documentElement.dataset.ready = '1';
+  }, 350);
+});
+
+</script>
+<script src="../../../options.js"></script>
 </body>
 </html>

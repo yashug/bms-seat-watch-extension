@@ -226,22 +226,37 @@ function paint() {
   const s = snapshot;
   if (!s) return;
 
-  const running = s.running !== false;
-  $('pip').className = 'pip' + (running ? '' : ' paused');
-  $('mode').textContent = running ? 'Watching' : 'Paused';
-  $('toggle').textContent = running ? 'Pause' : 'Resume';
+  paintWhatsNew();
+  paintReleases();
 
   const shows = s.shows || [];
   const live = shows.filter(x => !(s.state || {})[x.url]?.retired);
+
+  // Three states, not two. "Watching" used to mean only "not paused", so an
+  // empty extension announced it was watching directly above a panel saying
+  // nothing was on watch. Being switched on and having something to do are
+  // different things, and the header is the one line that has to be true at a
+  // glance.
+  const running = s.running !== false;
+  const onWatch = live.length + (s.releases || []).length;
+  const mode = !running ? 'paused' : onWatch ? 'watching' : 'ready';
+
+  $('pip').className = 'pip' + (mode === 'watching' ? '' : ` ${mode}`);
+  $('mode').textContent =
+    mode === 'paused' ? 'Paused' : mode === 'watching' ? 'Watching' : 'Ready';
+  $('toggle').textContent = running ? 'Pause' : 'Resume';
   $('tally').textContent = shows.length
     ? `${live.length}/${shows.length} live`
     : '';
 
   const host = $('shows');
 
-  // Nothing to check and nothing to pause until there's a show on the list.
-  $('check').disabled = !shows.length;
-  $('toggle').disabled = !shows.length;
+  // Nothing to check and nothing to pause until something is being watched —
+  // and a release watch counts, or somebody watching only upcoming films would
+  // find both buttons dead.
+  const anything = shows.length || (s.releases || []).length;
+  $('check').disabled = !anything;
+  $('toggle').disabled = !anything;
 
   if (!shows.length) {
     if (!host.querySelector('.empty')) {
@@ -397,6 +412,109 @@ function paint() {
   }
 }
 
+/**
+ * The films being watched for a release.
+ *
+ * Rebuilt wholesale on each paint rather than diffed, unlike the seat cards
+ * below: a row here is three lines of text with no canvas and no animation, so
+ * there is nothing whose state would be lost by replacing it.
+ */
+/**
+ * A one-line notice after an update that added something.
+ *
+ * Existing users never see the welcome page — it opens on first install only —
+ * so without this the release half would simply never be mentioned to anyone
+ * who already had the extension.
+ */
+function paintWhatsNew() {
+  const host = $('new');
+  const show = Boolean((snapshot || {}).whatsNew);
+  host.hidden = !show;
+  if (!show || host.dataset.built) return;
+  host.dataset.built = '1';
+  host.innerHTML =
+    '<div class="msg"><b>New:</b> watch a film that isn’t on sale yet, and get told ' +
+    'the moment booking opens.</div>' +
+    '<button data-new="show">Show me</button>' +
+    '<button class="quiet x" data-new="hide" aria-label="Dismiss">✕</button>';
+}
+
+function paintReleases() {
+  const s = snapshot || {};
+  const list = s.releases || [];
+  const host = $('up');
+  host.hidden = !list.length;
+  if (!list.length) { host.innerHTML = ''; return; }
+
+  const state = s.releaseState || {};
+  const every = (s.release || {}).intervalMinutes || 10;
+  const dormancy = (s.release || {}).dormancyDays ?? 7;
+
+  const rows = list.map((w) => {
+    const st = state[w.id] || {};
+    // Matches the worker: a watch wakes before its earliest premiere, not
+    // before release day, or a short dormancy would sleep through the premiere.
+    const premiereDays = (s.release || {}).premiereDays ?? 1;
+    const release = w.releaseDate ? dateToTs(w.releaseDate) : 0;
+    const wake = release
+      ? Math.min(release - dormancy * 86400000, release - premiereDays * 86400000)
+      : 0;
+    const sleeping = Date.now() < wake;
+
+    // What this watch is actually doing, in the order that matters: a broken
+    // detector first, then an error, then the ordinary states.
+    let note, cls = '';
+    if (st.last?.warn) { note = 'Can’t tell — BookMyShow changed the page'; cls = 'warn'; }
+    else if (st.last?.error) { note = `Last check failed — ${st.last.error}`; cls = 'warn'; }
+    else if (sleeping) { note = `Starts checking ${when(wake)}`; cls = 'sleeping'; }
+    // Keyed on how the watch is configured NOW, not on what the last check
+    // happened to do. Clearing a film's theatres stores `venues: null` — "any
+    // theatre" — while the previous check's mode is still recorded as 'venues',
+    // and reading w.venues.length off that threw.
+    else if (w.venues?.length) {
+      const n = w.venues.length;
+      // ago() already reads "checked 2m ago" — it is the whole phrase, not a
+      // duration, because the seat cards use it that way. With no check yet it
+      // says so on its own.
+      note = `${n} theatre${n === 1 ? '' : 's'} · ${ago(st.last?.at)}`;
+    }
+    else if (st.last?.signal === 'open') note = 'Booking is open';
+    else if (st.last) note = `Any theatre · ${ago(st.last.at)}`;
+    else note = w.releaseDate ? `Releases ${when(dateToTs(w.releaseDate))}` : 'Waiting for the first check';
+
+    const sub = w.releaseDate && !sleeping && !st.last?.warn
+      ? `${note} · every ${every}m` : note;
+
+    return `<div class="film">
+      <span class="dot ${cls}"></span>
+      <div class="who">
+        <div class="title">${esc(w.title || w.eventCode)}</div>
+        <div class="sub">${esc(sub)}</div>
+      </div>
+      <button class="x" data-dropfilm="${esc(w.id)}">${
+        (confirming.get(w.id) || 0) > Date.now() ? 'Sure?' : 'Stop'}</button>
+    </div>`;
+  }).join('');
+
+  host.innerHTML =
+    `<div class="up-head"><span class="eyebrow">Upcoming</span>` +
+    `<span class="eyebrow count">${list.length}</span></div>${rows}`;
+}
+
+/** "20260828" as a timestamp, without the timezone shift Date() would add. */
+function dateToTs(code) {
+  const m = /^(\d{4})(\d{2})(\d{2})$/.exec(String(code || ''));
+  return m ? new Date(+m[1], +m[2] - 1, +m[3]).getTime() : 0;
+}
+
+/** "in 3 days" / "tomorrow" — a release is never close enough to need minutes. */
+function when(ts) {
+  const days = Math.round((ts - Date.now()) / 86400000);
+  if (days <= 0) return 'today';
+  if (days === 1) return 'tomorrow';
+  return `in ${days} days`;
+}
+
 async function reload() {
   snapshot = await chrome.storage.local.get(null);
   paint();
@@ -447,6 +565,31 @@ $('shows').addEventListener('click', async (e) => {
     return reload();
   }
   confirming.set(drop, Date.now() + CONFIRM_MS);
+  paint();
+});
+
+$('new').addEventListener('click', async (e) => {
+  const what = e.target.closest('[data-new]')?.dataset.new;
+  if (!what) return;
+  // Cleared either way: shown once is the whole point, and a notice that keeps
+  // coming back after you have read it is just noise.
+  await chrome.storage.local.remove('whatsNew');
+  if (what === 'show') {
+    chrome.tabs.create({ url: chrome.runtime.getURL('welcome.html'), active: true });
+    return window.close();
+  }
+  reload();
+});
+
+$('up').addEventListener('click', async (e) => {
+  const id = e.target.closest('[data-dropfilm]')?.dataset.dropfilm;
+  if (!id) return;
+  if ((confirming.get(id) || 0) > Date.now()) {
+    confirming.delete(id);
+    await chrome.runtime.sendMessage({ type: 'removeRelease', id });
+    return reload();
+  }
+  confirming.set(id, Date.now() + CONFIRM_MS);
   paint();
 });
 

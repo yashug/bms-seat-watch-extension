@@ -1,0 +1,299 @@
+/* Social cards — same palette as ui.css so the posts and the product read as one thing.
+   Values are duplicated rather than imported: these render standalone under headless
+   Chrome, and a card that silently loses its colours is worse than one that repeats them. */
+:root {
+  --paper:  #F4F6FA;
+  --card:   #FFFFFF;
+  --edge:   #E1E7F0;
+  --edge-2: #CFD8E6;
+
+  --taken:  #D2DAE7;
+  --free:   #6E86AF;
+  --open:   #17915C;
+  --open-2: #E7F4ED;
+
+  --ink:    #16202F;
+  --ink-2:  #55637A;
+  --ink-3:  #8894A8;
+
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body { overflow: hidden; }
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The card is sized exactly by its own class; the build script matches the window to it. */
+.card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  position: relative;
+  overflow: hidden;
+}
+
+.card--og       { width: 1200px; height: 630px;  padding: 64px 72px; }
+.card--square   { width: 1080px; height: 1080px; padding: 74px 80px; }
+/* Vertical is the story/Reel format, so the padding is the platform's safe area, not
+   taste: Instagram and YouTube both put chrome over roughly the top 250px and bottom
+   340px of a 1920 frame, and a headline under the profile row is a headline nobody read. */
+.card--vertical { width: 1080px; height: 1920px; padding: 260px 80px 340px; }
+
+/* ------------------------------------------------------------------- type */
+
+.kicker {
+  font-family: var(--mono);
+  font-weight: 500;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+h1 {
+  font-weight: 700;
+  letter-spacing: -.028em;
+  line-height: 1.02;
+}
+
+.sub {
+  color: var(--ink-2);
+  line-height: 1.45;
+  letter-spacing: -.008em;
+}
+
+.sub b { color: var(--ink); font-weight: 600; }
+
+.card--og .kicker   { font-size: 17px; }
+.card--og h1        { font-size: 76px; }
+.card--og .sub      { font-size: 24px; max-width: 27ch; }
+
+.card--square .kicker { font-size: 21px; }
+.card--square h1      { font-size: 94px; }
+.card--square .sub    { font-size: 31px; max-width: 28ch; }
+
+.card--vertical .kicker { font-size: 26px; }
+.card--vertical h1      { font-size: 128px; }
+.card--vertical .sub    { font-size: 42px; max-width: 22ch; }
+
+/* The green is the product's one accent. Used on exactly one word per card. */
+.hl { color: var(--open); }
+
+/* --------------------------------------------------------------- the hall */
+
+.hall {
+  background: var(--card);
+  border: 1px solid var(--edge);
+  border-radius: 16px;
+  box-shadow: 0 1px 2px rgba(22, 32, 47, .05);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.card--og .hall       { padding: 30px 34px 20px; gap: 18px; }
+.card--square .hall   { padding: 46px 50px 30px; gap: 26px; border-radius: 22px; }
+.card--vertical .hall { padding: 56px 56px 36px; gap: 32px; border-radius: 26px; }
+
+.rows { display: flex; flex-direction: column; }
+.row  { display: flex; }
+.blk  { display: flex; }
+.blk + .blk { margin-left: var(--aisle); }
+
+.seat {
+  width: var(--seat);
+  height: var(--seat);
+  margin: var(--gap);
+  border-radius: 2px;
+  background: var(--taken);
+}
+.seat.free { background: var(--free); }
+.seat.open { background: var(--open); }
+
+/* The band is the whole point — four green dots joined reads as "four together",
+   four loose ones read as four coincidences. */
+.row { position: relative; }
+.band {
+  position: absolute;
+  border-radius: 999px;
+  background: var(--open);
+  opacity: .22;
+}
+
+/* The screen, drawn the way the popup draws it: a beam under the last row. */
+.screen { width: 100%; text-align: center; }
+.beam {
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--edge-2) 18%, var(--edge-2) 82%, transparent);
+  margin-bottom: 10px;
+}
+.screen span {
+  font-family: var(--mono);
+  font-weight: 500;
+  letter-spacing: .3em;
+  color: var(--ink-3);
+}
+
+.card--og .screen span       { font-size: 12px; }
+.card--square .screen span   { font-size: 16px; }
+.card--vertical .screen span { font-size: 20px; }
+
+/* ------------------------------------------------------------------ legend */
+
+.legend { display: flex; align-items: center; }
+.legend i { border-radius: 2px; display: inline-block; }
+.legend em { font-style: normal; font-family: var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); }
+
+.card--og .legend       { gap: 22px; }
+.card--og .legend i     { width: 11px; height: 11px; margin-right: 8px; }
+.card--og .legend em    { font-size: 12px; }
+
+.card--square .legend    { gap: 30px; }
+.card--square .legend i  { width: 15px; height: 15px; margin-right: 10px; }
+.card--square .legend em { font-size: 16px; }
+
+.card--vertical .legend    { gap: 38px; }
+.card--vertical .legend i  { width: 19px; height: 19px; margin-right: 12px; }
+.card--vertical .legend em { font-size: 20px; }
+
+/* -------------------------------------------------------------- the footer */
+
+.foot { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+
+.brand { display: flex; align-items: center; gap: 14px; }
+.brand img { display: block; border-radius: 8px; }
+.brand .name { font-weight: 650; letter-spacing: -.01em; }
+.brand .where { color: var(--ink-3); }
+
+.card--og .brand img       { width: 44px; height: 44px; }
+.card--og .brand .name     { font-size: 21px; }
+.card--og .brand .where    { font-size: 15px; }
+
+.card--square .brand img    { width: 60px; height: 60px; border-radius: 12px; }
+.card--square .brand .name  { font-size: 29px; }
+.card--square .brand .where { font-size: 20px; }
+
+.card--vertical .brand img    { width: 76px; height: 76px; border-radius: 14px; }
+.card--vertical .brand .name  { font-size: 38px; }
+.card--vertical .brand .where { font-size: 26px; }
+
+.pill {
+  border: 1px solid var(--edge-2);
+  background: var(--card);
+  border-radius: 999px;
+  font-family: var(--mono);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.card--og .pill       { font-size: 14px; padding: 9px 18px; }
+.card--square .pill   { font-size: 19px; padding: 13px 26px; }
+.card--vertical .pill { font-size: 24px; padding: 17px 32px; }
+
+/* The disclaimer is small on purpose, and present on purpose. */
+.fine {
+  color: var(--ink-3);
+  font-family: var(--mono);
+  letter-spacing: .02em;
+}
+.card--og .fine       { font-size: 12px; }
+.card--square .fine   { font-size: 16px; }
+.card--vertical .fine { font-size: 20px; }
+
+/* ------------------------------------------------------ the cinema board
+
+   The release cards need a different object from the hall. The hall answers
+   "which seats", and this answers the question that comes before it: "which
+   cinema is selling yet". It is drawn as what the alert actually says — your
+   cinemas, one of them lit — because a card that shows the product's real
+   output is a card nobody has to decode. */
+
+.board {
+  background: var(--card);
+  border: 1px solid var(--edge);
+  border-radius: 16px;
+  box-shadow: 0 1px 2px rgba(22, 32, 47, .05);
+  overflow: hidden;
+}
+
+.board__film {
+  border-bottom: 1px solid var(--edge);
+  font-weight: 650;
+  letter-spacing: -.012em;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+/* The bell, in the amber that means "waiting for something that has not
+   happened yet" everywhere else in the product. */
+.board__bell {
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #FDF6E9;
+  border: 1px solid #E2C79A;
+}
+
+.board__row { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.board__row + .board__row { border-top: 1px solid var(--edge); }
+.board__name { color: var(--ink-2); letter-spacing: -.008em; }
+
+/* Grey means "nothing here yet", green means "go". The same two states the
+   extension has, in the same two colours it uses for them. */
+.board__state {
+  font-family: var(--mono);
+  font-weight: 500;
+  letter-spacing: .04em;
+  color: var(--ink-3);
+  flex: none;
+}
+.board__state.is-open {
+  color: #FFFFFF;
+  background: var(--open);
+  border-radius: 999px;
+}
+.board__row.is-open .board__name { color: var(--ink); font-weight: 600; }
+
+.card--og       .board__film  { font-size: 24px; padding: 20px 26px; }
+.card--og       .board__row   { padding: 17px 26px; }
+.card--og       .board__name  { font-size: 21px; }
+.card--og       .board__state { font-size: 15px; }
+.card--og       .board__state.is-open { padding: 8px 15px; }
+.card--og       .board__bell  { width: 38px; height: 38px; font-size: 18px; }
+
+.card--square   .board { border-radius: 22px; }
+.card--square   .board__film  { font-size: 33px; padding: 30px 38px; }
+.card--square   .board__row   { padding: 26px 38px; }
+.card--square   .board__name  { font-size: 29px; }
+.card--square   .board__state { font-size: 20px; }
+.card--square   .board__state.is-open { padding: 11px 20px; }
+.card--square   .board__bell  { width: 52px; height: 52px; font-size: 24px; }
+
+.card--vertical .board { border-radius: 26px; }
+.card--vertical .board__film  { font-size: 42px; padding: 38px 46px; }
+.card--vertical .board__row   { padding: 34px 46px; }
+.card--vertical .board__name  { font-size: 37px; }
+.card--vertical .board__state { font-size: 25px; }
+.card--vertical .board__state.is-open { padding: 14px 26px; }
+.card--vertical .board__bell  { width: 66px; height: 66px; font-size: 30px; }
+
+/* The release cards carry a three-row board where the hall cards carry a compact
+   grid, so the type gives the room back rather than the board losing a cinema.
+   A board showing two cinemas would still read, but "your cinemas, one of them
+   open" is the whole claim and it needs more than one to be un-open. */
+.card--og.is-release h1        { font-size: 64px; }
+.card--og.is-release .sub      { font-size: 21px; max-width: 34ch; }
+.card--square.is-release h1    { font-size: 80px; }
+.card--square.is-release .sub  { font-size: 27px; max-width: 32ch; }
+.card--vertical.is-release h1  { font-size: 108px; }
+.card--vertical.is-release .sub { font-size: 37px; max-width: 25ch; }

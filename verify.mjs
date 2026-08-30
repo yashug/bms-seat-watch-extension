@@ -42,6 +42,87 @@ const referenced = [
 for (const f of [...new Set(referenced)])
   t(`file exists: ${f}`, existsSync(here(f)));
 
+// ------------------------------------------------------- the store listing
+//
+// The listing drifted from the manifest once already: it justified permissions
+// for an extension that had since grown a second half. It is prose, so nothing
+// makes it true except checking it.
+console.log('\nstore listing');
+{
+  const listing = readFileSync(here('store/listing.md'), 'utf8');
+
+  for (const perm of mf.permissions)
+    t(`listing justifies permission: ${perm}`, listing.includes(`\`${perm}\``));
+  // The form has ONE box for host permissions, not one per host, and the
+  // 1000-character cap applies to all of them together. Written as separate
+  // fields they totalled 1307 and would have been rejected at submission.
+  {
+    const sec = listing.slice(listing.indexOf('## Permission justifications'),
+                              listing.indexOf('## Privacy practices'));
+    const hostBlocks = sec.split('\n**').slice(1)
+      .filter((p) => /^Host permission/i.test(p));
+    t('host permissions are justified in one field, not one per host',
+      hostBlocks.length === 1, `${hostBlocks.length} blocks`);
+
+    const body = (/```\n([\s\S]*?)```/.exec(hostBlocks[0] || '') || [, ''])[1];
+    for (const host of mf.host_permissions) {
+      const bare = host.replace(/^https:\/\//, '').replace(/\/\*$/, '');
+      t(`the host field covers ${bare}`, body.includes(bare));
+    }
+    for (const opt of mf.optional_host_permissions || [])
+      t(`the host field covers optional ${opt}`, body.includes(opt));
+    t(`the combined host field fits 1000 chars (${body.replace(/\n$/, '').length})`,
+      body.replace(/\n$/, '').length <= 1000);
+  }
+
+  // A justification for something no longer requested is worse than a missing
+  // one — it invites a question about a permission that isn't there.
+  const claimed = [...listing.matchAll(/\*\*`([a-z]+)`\*\*/g)].map((m) => m[1]);
+  t('listing justifies nothing the manifest does not ask for',
+    claimed.every((c) => mf.permissions.includes(c)), claimed.join());
+
+  // The packaging step names a filename; a stale one silently ships the wrong build.
+  t('the build command names the current version',
+    listing.includes(`seat-watch-${mf.version}.zip`));
+
+  // Host-wide content scripts are the thing a reviewer will ask about.
+  const hostWide = (mf.content_scripts || [])
+    .some((c) => c.matches.includes('https://in.bookmyshow.com/*'));
+  t('listing explains host-wide content scripts if that is what ships',
+    !hostWide || /single-page app/.test(listing));
+
+  // Two claims in the privacy table that the code decides, not the copy.
+  t('listing does not claim the city is unstored',
+    !/city[^|]*never stored/i.test(listing));
+  t('listing states the single purpose in the singular',
+    /Watches BookMyShow listings the user has chosen/.test(listing));
+
+  // The store's own field limits. Prose grows when it is edited, and an
+  // over-long justification is rejected at submission — after the wait, not
+  // during it.
+  {
+    const fenced = (heading) => {
+      const at = listing.indexOf(heading);
+      const m = /```\n([\s\S]*?)```/.exec(listing.slice(at));
+      return m ? m[1].replace(/\n$/, '') : '';
+    };
+    t(`summary within 132 chars (${fenced('## Summary').length})`,
+      fenced('## Summary').length <= 132);
+    t(`single purpose within 1000 chars (${fenced('## Single purpose').length})`,
+      fenced('## Single purpose').length <= 1000);
+
+    const sec = listing.slice(listing.indexOf('## Permission justifications'),
+                              listing.indexOf('## Privacy practices'));
+    for (const part of sec.split('\n**').slice(1)) {
+      const label = part.split('**')[0];
+      const m = /```\n([\s\S]*?)```/.exec(part);
+      if (!m) continue;
+      const n = m[1].replace(/\n$/, '').length;
+      t(`justification within 1000 chars: ${label} (${n})`, n <= 1000);
+    }
+  }
+}
+
 // ---------------------------------------------------------------- interface
 console.log('\ninterface');
 const popupHtml = readFileSync(here('popup.html'), 'utf8');
@@ -106,7 +187,40 @@ t('settings repeats that sold-out shows are the ones to watch',
   /Include the sold-out ones/.test(optsHtml));
 t('the privacy page is reachable from settings', /href="privacy\.html"/.test(optsHtml));
 t('…and from onboarding', /href="privacy\.html"/.test(welcomeHtml));
+// The welcome page fires on fresh install only, so a page describing half the
+// extension is a page every future user learns half from.
+t('welcome introduces the release half too',
+  /upcoming movies/i.test(welcomeHtml) && /Release watch/.test(welcomeHtml));
+t('welcome says the release half needs no window',
+  /needs no window and no display/i.test(welcomeHtml));
+t('the watcher-window warning says it is about seat maps',
+  /Watching a seat map only/i.test(welcomeHtml));
+
 t('privacy states there is no server', /no backend|no server/i.test(privacyHtml));
+// The policy is checkable against the code, so check it. Release fetches try
+// anonymously and fall back to the session; a policy claiming cookies are simply
+// switched off would be an overclaim, and an overclaiming privacy policy is worse
+// than a vague one.
+{
+  const rel = readFileSync(here('release.js'), 'utf8');
+  const hasFallback = /\['omit', 'include'\]/.test(rel);
+  t('the policy describes the anonymous-first fetch as it actually behaves',
+    !hasFallback || (/tried first with cookies\s*\n?\s*switched off/.test(privacyHtml) &&
+                     /retried with your\s*\n?\s*session/.test(privacyHtml)));
+}
+t('privacy lists what a release watch stores',
+  /films you chose to watch for a release/i.test(privacyHtml) &&
+  /list of cinemas/i.test(privacyHtml));
+t('privacy says a Telegram group means everyone sees it',
+  /everyone in that group sees the alert/i.test(privacyHtml));
+// The hosted copy is generated, and a stale one is the copy the store reviewer reads.
+{
+  const hosted = readFileSync(here('docs/privacy.html'), 'utf8');
+  for (const claim of ['films you chose to watch for a release',
+                       'everyone in that group sees the alert',
+                       'tried first with cookies'])
+    t(`hosted policy carries: "${claim.slice(0, 34)}…"`, hosted.includes(claim));
+}
 t('privacy is honest that tokens are stored in the clear',
   /stored unencrypted/.test(privacyHtml));
 t('privacy states no analytics or telemetry',
@@ -758,9 +872,77 @@ console.log('\nwatch this show (listing pages)');
       injected('https://in.bookmyshow.com/movies/hyderabad/spider-man-brand-new-day/ET00505581'));
     t('re-scans when the route changes without a load',
       /addEventListener\('popstate', queue\)/.test(cs) && /new MutationObserver\(queue\)/.test(cs));
-    t('does not run on unrelated pages',
-      !injected('https://in.bookmyshow.com/explore/home/hyderabad') &&
-      !injected('https://in.bookmyshow.com/offers'));
+    // This used to assert the opposite — that unrelated pages were not matched —
+    // and that narrowness was the bug. Injection happens once, against the URL
+    // the document loaded with; every click after that is a pushState with no
+    // load. A script not matched on arrival never gets a second chance, so
+    // landing on the home page and clicking through to a listing produced no
+    // buttons at all until you reloaded.
+    //
+    // The guarantee is therefore no longer "does not run" but "does not act":
+    // matched everywhere on the host, inert on anything it does not recognise.
+    // It grants nothing new — host_permissions already covers the whole host,
+    // so the install-time warning is unchanged.
+    t('runs on the pages a listing is reached from',
+      injected('https://in.bookmyshow.com/explore/home/hyderabad') &&
+      injected('https://in.bookmyshow.com/explore/upcoming-movies-hyderabad'));
+    t('and does nothing on a page it does not recognise',
+      /const ctx = pageContext\(location\.href\);/.test(cs.replace(/let ctx/, 'const ctx')) &&
+      /if \(!ctx\) return;/.test(cs));
+    const bell = readFileSync(here('content-release.js'), 'utf8');
+
+    // Both scripts are injected into the same page, and content scripts from
+    // one extension share a single isolated world — so a top-level `const
+    // watched` in one and a top-level `let watched` in the other are the same
+    // declaration twice, and the page dies before either runs. They also both
+    // want `toast`, `pending`, `queue` and `loadWatched`. content.js declares
+    // at the top level, so the newer script is the one that has to enclose
+    // itself.
+    {
+      const bare = bell
+        .replace(/\/\*[\s\S]*?\*\//g, '')      // block comments
+        .replace(/^\s*\/\/[^\n]*$/gm, '')        // line comments
+        .split('\n').map((l) => l.trim()).filter(Boolean);
+      t('the bell script declares nothing globally',
+        bare[0] === '(() => {' && bare[bare.length - 1] === '})();');
+    }
+    // Reloading the extension leaves open tabs running a script with nothing
+  // behind it. Touching chrome.runtime then throws rather than rejecting, and
+  // inside an async function that becomes a rejection nobody awaits.
+  t('the bell notices when the extension has gone',
+    /const connected = \(\) => \{/.test(bell) && /function markStale/.test(bell));
+  t('it stands down before touching a dead runtime',
+    /if \(!connected\(\)\) return markStale\(\);/.test(bell));
+  t('the city hint is guarded against a throw, not only a rejection',
+    /try \{ chrome\.runtime\.sendMessage\(\{ type: 'cityHint'/.test(bell));
+  t('run() started from a timer cannot reject unhandled',
+    !/\brun\(\);/.test(bell) && /run\(\)\.catch\(markStale\)/.test(bell));
+  t('a dead extension stops the timers', /if \(orphaned\) return;/.test(bell) &&
+    /if \(orphaned \|\| retries >= 4\)/.test(bell));
+  t('the severed bell says so instead of looking live',
+    /is-stale/.test(bell) &&
+    /\.bms-seat-watch-bell-btn\.is-stale/.test(readFileSync(here('content.css'), 'utf8')));
+
+  t('the bell is inert on pages it does not recognise',
+      /const kind = pageKind\(\);\s*\n\s*if \(!kind\) return;/.test(bell));
+    t('both scripts are injected the same way',
+      (mf.content_scripts || []).every((c) =>
+        c.matches.length === 1 && c.matches[0] === 'https://in.bookmyshow.com/*'));
+    t('the bell re-scans when the route changes without a load',
+      /addEventListener\('popstate', queue\)/.test(bell) && /function queue\(\)/.test(bell));
+    t('a route change drops what was remembered about the old page',
+      /function routeChanged/.test(bell) && /groupIndex\.cached = undefined/.test(bell));
+    // The film page's bell floats from <body>, outside the markup BookMyShow
+    // swaps — so nothing removes it, and it followed you everywhere after.
+    t('the floating bell does not survive the page it belongs to',
+      /querySelectorAll\(`\.\$\{BELL\}-btn\.is-floating`\)/.test(bell) &&
+      /\.remove\(\)/.test(bell));
+    // And the quieter half: it is bound to one film, and decorateFilm repaints
+    // rather than rebuilds, so left in place it would keep film A's identity on
+    // film B's page.
+    t('and is rebuilt for the film actually on screen',
+      (() => { const rc = bell.slice(bell.indexOf('function routeChanged'));
+               return rc.indexOf('is-floating') < rc.indexOf('return true;'); })());
   }
   t('runs after the listing has rendered', mf.content_scripts?.[0]?.run_at === 'document_idle');
   // Injected into someone else's document, so every selector has to be ours.
@@ -1601,6 +1783,625 @@ console.log('\nwatch this show (listing pages)');
     due.indexOf('sweepRetired') < due.indexOf('for (const show'));
   t('a paused extension is not swept behind the user\'s back',
     due.indexOf('if (!cfg.running') < due.indexOf('sweepRetired'));
+}
+
+// ------------------------------------------------------- telegram to a group
+//
+// A chat id is a group as readily as a person, which is how one machine tells a
+// whole group of friends at once.
+console.log('\ntelegram destinations');
+{
+  const oj = readFileSync(here('options.js'), 'utf8');
+  const oh = readFileSync(here('options.html'), 'utf8');
+
+  t('destinations are a list, however they were typed',
+    /const chatList = \(tg\) => String\(tg\?\.chatId \?\? ''\)\s*\n?\s*\.split\(\/\[\\s,;\]\+\//.test(bg));
+  t('the stored shape did not change, so old configs still work',
+    /chatId/.test(bg) && !/chatIds:/.test(bg));
+  t('every destination is sent to independently',
+    /for \(const chatId of chats\)/.test(bg));
+  t('one dead destination cannot silence the others',
+    /failed\.push\(/.test(bg) && /if \(!sent\) throw/.test(bg));
+  t('partial delivery is surfaced, not treated as success',
+    /if \(out\.failed\.length\) st\.telegramError/.test(bg));
+
+  // On a phone, in a group, one tap beats hunting for a link in a paragraph.
+  t('alerts carry a tappable button', /inline_keyboard/.test(bg));
+  t('the seat alert points at the seat map',
+    /button: \{ text: 'Open seats', url: show\.url \}/.test(bg));
+  t('the release alert points at the booking page',
+    /button: \{ text: 'Book now', url: link \}/.test(bg));
+  // An alert about Thursday's premiere that opens Friday's listing is the wrong
+  // page, so the link follows the day that actually opened.
+  t('and at the day that actually opened',
+    /const day = opened\?\.venues\?\.map\(\(v\) => v\.date\)/.test(bg));
+  t('clicking the notification recovers that day too',
+    /k\.split\('\|'\)\[2\]/.test(bg));
+  t('the alert says when a premiere is what opened',
+    /Premiere booking open/.test(bg) && /function describeOpened/.test(bg));
+  t('no button means no keyboard', /if \(button\?\.url\)/.test(bg));
+
+  t('picking a chat adds rather than replaces',
+    /ids\.includes\(c\.id\) \? ids\.filter/.test(oj));
+  t('a picked destination looks picked', /\.chats button\.is-on/.test(oh));
+  t('the test message says how many places it reached', /Test message sent to \$\{res\.sent\}/.test(oj));
+  t('and names a destination that failed', /failed for \$\{res\.failed\.length\}/.test(oj));
+
+  // The step everyone misses: a bot cannot see ordinary group chatter.
+  t('the group instructions mention addressing the bot',
+    /\/start@yourbotname/.test(oh));
+  t('and that group ids are negative', /-1001234567890/.test(oh));
+  t('the field no longer claims to hold one id',
+    /Who gets told/.test(oh) && !/<label for="chat">Chat ID<\/label>/.test(oh));
+}
+
+// ------------------------------------------------------- release watching
+//
+// release.js is a real module rather than functions scraped out of a service
+// worker, so these run the shipped code directly. The fixtures are the shapes
+// the probes actually returned from BookMyShow, not invented ones — a parser
+// that passes against imagined JSON has been tested against nothing.
+console.log('\nrelease watching');
+{
+  const R = await import('./release.js');
+
+  const byVenueFixture = {
+    ShowDetails: [{
+      Date: '20260826',
+      Venues: { VenueCode: 'ALUC' },
+      Event: [{
+        EventTitle: 'Toxic: A Fairy Tale for Grown-ups',
+        EventGroup: 'EG00377461',
+        ChildEvents: [
+          { EventCode: 'ET00379307', EventGroup: 'EG00377461', EventLanguage: 'Telugu',
+            EventDimension: '2D', EventUrl: 'toxic', ShowTimes: [
+              { SessionId: '1', ShowTime: '10:00 AM', ScreenName: 'S1' },
+              { SessionId: '2', ShowTime: '02:00 PM', ScreenName: 'S1' }] },
+          { EventCode: 'ET00514059', EventGroup: 'EG00377461', EventLanguage: 'Telugu',
+            EventDimension: '2D', EventUrl: 'toxic', ShowTimes: [
+              { SessionId: '3', ShowTime: '07:00 PM', ScreenName: 'S2' }] },
+        ],
+      }],
+    }],
+  };
+
+  const parsed = R.parseByVenue(byVenueFixture, 'ALUC');
+  t('byvenue yields one record per child event', parsed.length === 2);
+  t('byvenue carries the group code', parsed.every(c => c.group === 'EG00377461'));
+  t('byvenue carries the venue', parsed.every(c => c.venueCode === 'ALUC'));
+  t('byvenue keeps the sessions', parsed[0].shows.length === 2 && parsed[0].shows[0].sessionId === '1');
+  t('a child event with no code is dropped',
+    R.parseByVenue({ ShowDetails: [{ Event: [{ ChildEvents: [{ ShowTimes: [] }] }] }] }).length === 0);
+
+  // The whole reason the group exists. A watch created from a listing that
+  // showed ET00379307 must still fire on ET00514059 — same film, and the code
+  // that goes on sale is not knowable in advance.
+  const watch = { group: 'EG00377461', eventCode: 'ET00379307' };
+  t('a sibling event code still matches on the group',
+    R.matchesFilm(parsed[1], watch) === true);
+  t('a different group does not match, whatever the code',
+    R.matchesFilm({ group: 'EG00000001', eventCode: 'ET00379307' }, watch) === false);
+  t('with no group known, the event code is the fallback',
+    R.matchesFilm({ group: null, eventCode: 'ET00379307' }, { eventCode: 'ET00379307' }) === true);
+  t('a groupless watch does not match an unrelated code',
+    R.matchesFilm({ group: null, eventCode: 'ET00999999' }, { eventCode: 'ET00379307' }) === false);
+
+  // A date with no zone read through Date() lands on the previous evening for
+  // anyone west of UTC, which would wake a watch a day late.
+  t('an ISO release date keeps its day', R.dateCodeFromIso('2026-08-21T00:00:00') === '20260821');
+  t('a bare ISO date works too', R.dateCodeFromIso('2026-08-21') === '20260821');
+  t('a missing date is null, not a guess', R.dateCodeFromIso(null) === null);
+  t('a date code round-trips through local midnight',
+    R.toDateCode(new Date(R.dateCodeToTs('20260821'))) === '20260821');
+
+  const release = { releaseDate: '20260828' };
+  const releaseTs = R.dateCodeToTs('20260828');
+  t('a watch sleeps until seven days before release',
+    R.wakesAt(release, 7) === releaseTs - 7 * 86400000);
+  t('it is dormant eight days out',
+    R.isDormant(release, releaseTs - 8 * 86400000, 7) === true);
+  t('it is awake six days out',
+    R.isDormant(release, releaseTs - 6 * 86400000, 7) === false);
+  // Not knowing when a film opens is a reason to watch sooner, never later.
+  t('a watch with no release date is never dormant',
+    R.isDormant({ releaseDate: null }, Date.now(), 7) === false);
+  t('the dormancy window is configurable',
+    R.wakesAt(release, 1) === releaseTs - 86400000);
+
+  t('a watch expires a day after release',
+    R.isExpired(release, releaseTs + 2 * 86400000) === true);
+  t('a watch is live on release day', R.isExpired(release, releaseTs) === false);
+  t('a watch with no date never expires', R.isExpired({ releaseDate: null }, Date.now()) === false);
+
+  // Premieres run the night before release — benefit shows, 1am shows, paid
+  // previews. They are often the FIRST thing on sale and the thing fans most
+  // want, so release day alone missed the booking that mattered most.
+  t('the premiere night is asked about too',
+    JSON.stringify(R.datesFor(release)) === JSON.stringify(['20260827', '20260828']));
+  t('oldest first, so an alert reads in the order the days happen',
+    R.datesFor(release, 2)[0] === '20260826');
+  t('premieres can be turned off',
+    JSON.stringify(R.datesFor(release, 0)) === JSON.stringify(['20260828']));
+  t('the window is capped, so it cannot become a scrape',
+    R.datesFor(release, 99).length === 8);
+  t('with no release date it asks about today',
+    R.datesFor({ releaseDate: null })[0] === R.toDateCode(new Date()));
+
+  t('a date before release is a premiere', R.isPremiere('20260827', release) === true);
+  t('release day itself is not', R.isPremiere('20260828', release) === false);
+  t('an unknown date is not guessed at', R.isPremiere('20260827', {}) === false);
+  t('a premiere is labelled as one', /^Premiere · /.test(R.dateLabel('20260827', release)));
+  t('release day is labelled by its date alone',
+    !/Premiere/.test(R.dateLabel('20260828', release)) && /Aug/.test(R.dateLabel('20260828', release)));
+
+  // A one-day dormancy with a premiere the night before would otherwise wake on
+  // release day, after the premiere had been and gone.
+  t('a watch wakes before its earliest premiere, not before release day',
+    R.wakesAtWithPremieres(release, 0, 1) === releaseTs - 86400000);
+  t('a longer dormancy still wins when it is earlier',
+    R.wakesAtWithPremieres(release, 7, 1) === releaseTs - 7 * 86400000);
+
+  // Three values, not two: a reworded page must not read as "not open".
+  t('"Book tickets" means open', R.bookingSignal('<a>Book tickets</a>') === 'open');
+  t('"Releasing on" means not yet', R.bookingSignal('<p>Releasing on 28 Aug</p>') === 'closed');
+  t('neither phrase is unknown, not closed', R.bookingSignal('<p>something else</p>') === 'unknown');
+  t('open wins when both appear', R.bookingSignal('Releasing on 28 Aug. Book tickets') === 'open');
+
+  // A "you might also like" rail can mention another film's group once. Taking
+  // the first EG code on the page would bind the watch to the wrong film, and
+  // it would look exactly like a film that never went on sale.
+  const film = R.parseFilmPage(
+    '<title>Irumudi - Telugu | BookMyShow</title>' +
+    'EG00485290 EG00485290 EG00485290 EG00999999 ' +
+    '"releaseDate":"2026-08-21T00:00:00" <span>Book tickets</span>');
+  t('the film page group is the commonest, not the first', film.group === 'EG00485290');
+  t('the film page release date is read', film.releaseDate === '20260821');
+  t('the film page title drops the site suffix', film.title === 'Irumudi');
+  t('the film page reports its booking state', film.booking === 'open');
+
+  const nextTag = (obj) =>
+    `<html><script id="__NEXT_DATA__" type="application/json">${JSON.stringify(obj)}</script></html>`;
+
+  const venues = R.parseCinemas(nextTag({ p: { v: [
+    { VenueCode: 'ALUC', VenueName: 'ALLU Cinemas: Kokapet', SubRegionCode: 'HYD',
+      arrDates: [{ ShowDateCode: '20260826' }, { ShowDateCode: '20260827' }] },
+    { VenueCode: 'AMBH', VenueName: 'AMB Cinemas: Gachibowli', arrDates: [] },
+    { VenueCode: 'nope', VenueName: 'not a code' },
+  ] } }));
+  t('the cinemas page yields venues', venues.length === 2);
+  t('venues come back sorted by name', venues[0].code === 'ALUC' && venues[1].code === 'AMBH');
+  t('arrDates is flattened to date codes',
+    JSON.stringify(venues[0].dates) === JSON.stringify(['20260826', '20260827']));
+  t('a malformed venue code is skipped', !venues.some(v => v.code === 'nope'));
+
+  // The regions response has been seen using each spelling of the key.
+  const regions = R.parseRegions({ a: [{ RegionCode: 'HYD', RegionName: 'Hyderabad' }],
+                                   b: [{ regionCode: 'MUMBAI', regionName: 'Mumbai' }] });
+  t('regions parse in either key casing', regions.length === 2);
+  t('a region slug is derived when absent',
+    regions.find(r => r.code === 'HYD').slug === 'hyderabad');
+
+  const upcoming = R.parseUpcoming(nextTag({ listings: [{ cards: [
+    { analytics: { event_code: 'ET00505635', event_group: 'EG00502597', title: 'Tom & Cherry',
+                   language: 'gujarati' } },
+    { analytics: { event_code: 'ET00505635', event_group: 'EG00502597', title: 'dupe' } },
+    { analytics: { event_code: 'nonsense' } },
+  ] }] }));
+  t('the upcoming list yields one row per film', upcoming.length === 1);
+  t('the upcoming list carries the group', upcoming[0].group === 'EG00502597');
+  t('a non-code is not treated as a film', !upcoming.some(u => u.eventCode === 'nonsense'));
+  t('a page with no state yields nothing', R.parseUpcoming('<html></html>').length === 0);
+  t('nextData survives a page without the tag', R.nextData('<html></html>') === null);
+
+  // Jitter has to stay inside the band, or a "10 minute" setting could mean
+  // anything and the cadence stops being a setting at all.
+  {
+    const now = 1_000_000;
+    let lo = Infinity, hi = -Infinity;
+    for (let i = 0; i < 400; i++) {
+      const d = R.nextCheckAt(now, 10) - now;
+      lo = Math.min(lo, d); hi = Math.max(hi, d);
+    }
+    t('the interval jitters within ±15%', lo >= 10 * 60000 * 0.85 && hi <= 10 * 60000 * 1.15);
+    t('a nonsense interval falls back to the default',
+      R.nextCheckAt(now, 0) - now >= R.RELEASE_DEFAULTS.intervalMinutes * 60000 * 0.85);
+  }
+
+  t('the seen key names film, venue and date',
+    R.seenKey('ALUC', 'ET1', '20260828') === 'ALUC|ET1|20260828');
+  // Titles come out of raw markup, where entities live and a worker has no DOM.
+  t('an entity in a title is decoded', R.cleanTitle('I&#x27;m Game') === "I'm Game");
+  t('a named entity is decoded too', R.cleanTitle('Tom &amp; Cherry') === 'Tom & Cherry');
+  t('the disambiguating year is dropped', R.cleanTitle('Once More (2026)') === 'Once More');
+  t('a year inside the name is kept',
+    R.cleanTitle('K.G.F (2018) Chapter 2 (2022)') === 'K.G.F (2018) Chapter 2');
+  t('an unparseable reference is left alone, not guessed at',
+    R.cleanTitle('&#9999999999;x') === '&#9999999999;x');
+  t('cleaning a clean title changes nothing',
+    R.cleanTitle('Ramba Oorvasi Menaka') === 'Ramba Oorvasi Menaka');
+  t('cleaning is safe to repeat', R.cleanTitle(R.cleanTitle('I&#x27;m Game (2026)')) === "I'm Game");
+
+  t('a slug becomes a readable name',
+    R.titleFromSlug('ramba-oorvasi-menaka') === 'Ramba Oorvasi Menaka');
+  t('an absent slug yields nothing, not "undefined"', R.titleFromSlug(null) === '');
+
+  t('the defaults are the agreed ones',
+    R.RELEASE_DEFAULTS.intervalMinutes === 10 && R.RELEASE_DEFAULTS.dormancyDays === 7);
+
+  // The city picker went dead because parseRegions insisted on a name field
+  // that the probe had never actually verified existed. Either half of the
+  // name/slug pair has to be enough.
+  t('a region with only a slug is still usable',
+    R.parseRegions({ x: [{ RegionCode: 'HYD', regionNameSlug: 'hyderabad' }] })[0]?.name === 'Hyderabad');
+  t('a region with only a name is still usable',
+    R.parseRegions({ x: [{ regionCode: 'MUMBAI', name: 'Mumbai' }] })[0]?.slug === 'mumbai');
+  t('a bare code names nothing and is dropped',
+    R.parseRegions({ x: [{ RegionCode: 'HYD' }] }).length === 0);
+  // BookMyShow's own picker leads with a short row of big cities. The endpoint
+  // was observed returning them in that order; sorting it away buried them.
+  {
+    const regions = [
+      { code: 'ZZZ', name: 'Aaa Town', slug: 'a' }, { code: 'HYD', name: 'Hyderabad', slug: 'h' },
+      { code: 'MUMBAI', name: 'Mumbai', slug: 'm' }, { code: 'YYY', name: 'Bbb City', slug: 'b' },
+      { code: 'NCR', name: 'Delhi-NCR', slug: 'n' },
+    ];
+    const g = R.groupRegions(regions);
+    t('the big cities are lifted out',
+      g.popular.map(r => r.code).join() === 'MUMBAI,NCR,HYD');
+    t('and keep BookMyShow’s order, not alphabetical order',
+      g.popular[0].name === 'Mumbai' && g.popular[2].name === 'Hyderabad');
+    t('everything else stays alphabetical',
+      g.rest.map(r => r.name).join() === 'Aaa Town,Bbb City');
+    t('no city is lost in the split', g.popular.length + g.rest.length === regions.length);
+    // A code spelled differently should cost a city its place at the top, not
+    // drop it from the list.
+    t('an unknown code still lands in the list',
+      R.groupRegions([{ code: 'WAT', name: 'Somewhere', slug: 's' }]).rest.length === 1);
+    t('a popular city is recognised by name when its code is not',
+      R.groupRegions([{ code: 'XX', name: 'Kolkata', slug: 'k' }]).popular.length === 1);
+  }
+  {
+    const optionsJs = readFileSync(here('options.js'), 'utf8');
+    t('the settings page groups the cities too',
+      /<optgroup label="Popular cities">/.test(optionsJs));
+    t('no group headings when there is nothing to separate',
+      /!popular\.length \|\| !rest\.length/.test(optionsJs));
+  }
+  t('the fallback list leads with the same cities',
+    R.FALLBACK_REGIONS[0].code === 'MUMBAI' && R.FALLBACK_REGIONS[3].code === 'HYD');
+
+  // The stored shape changed from a flat list to one keyed by city, and a
+  // config written before that still has the old one.
+  t('theatres are read for the city asked about',
+    R.venuesForCity({ HYD: ['ALUC'], MUMBAI: ['XYZ'] }, 'HYD').join() === 'ALUC');
+  t('a city with nothing chosen gets nothing',
+    R.venuesForCity({ HYD: ['ALUC'] }, 'MUMBAI').length === 0);
+  t('an old flat list still applies to the city it was saved under',
+    R.venuesForCity(['ALUC'], 'HYD', 'HYD').join() === 'ALUC');
+  t('an old flat list is not carried into another city',
+    R.venuesForCity(['ALUC'], 'MUMBAI', 'HYD').length === 0);
+  t('a missing selection is an empty list, never undefined',
+    Array.isArray(R.venuesForCity(undefined, 'HYD')));
+  t('the default selection is keyed by city',
+    !Array.isArray(R.RELEASE_DEFAULTS.defaultVenues));
+
+  t('there is a fallback city list', R.FALLBACK_REGIONS.length > 3 &&
+    R.FALLBACK_REGIONS.every(r => r.code && r.name && r.slug));
+
+  // The venue records were measured present in the raw text of the same fetch,
+  // so an unrecognised state shape must not mean "no cinemas".
+  t('cinemas fall back to the raw document',
+    R.parseCinemas('x {"VenueCode":"ALUC","VenueName":"ALLU Cinemas: Kokapet"} y')[0]?.code === 'ALUC');
+  t('the fallback will not invent a nameless venue',
+    R.parseCinemas('x {"VenueCode":"ALUC"} y').length === 0);
+
+  // A walk over a cyclic object must terminate rather than blow the stack.
+  {
+    const a = { name: 'a' }; a.self = a;
+    let n = 0;
+    R.walk(a, () => n++);
+    t('the walk survives a cycle', n === 1);
+  }
+}
+
+// ---------------------------------------------- release wiring in background
+console.log('\nrelease wiring');
+{
+  // Read once at the top of the block; assertions below all use them.
+  const oh = readFileSync(here('options.html'), 'utf8');
+  const oj = readFileSync(here('options.js'), 'utf8');
+  const cr = readFileSync(here('content-release.js'), 'utf8');
+
+  t('the worker imports the release module', /import \* as R from '\.\/release\.js'/.test(bg));
+  for (const m of ['addRelease', 'removeRelease', 'listReleases', 'venues', 'regions', 'setCity'])
+    t(`service worker answers ${m}`, new RegExp(`msg\\.type === '${m}'`).test(bg));
+  t('removing a release drops its state too', /delete state\[msg\.id\]/.test(bg));
+  t('the tick drives release checks too', /runDue\(\)\.then\(runDueReleases\)/.test(bg));
+
+  const rel = grabFrom(bg, 'runDueReleases');
+  t('dormant watches are skipped', rel.includes('wakesAtWithPremieres'));
+  t('and the popup agrees with the worker about when that is',
+    /premiereDays \* 86400000/.test(readFileSync(here('popup.js'), 'utf8')));
+  t('releases are swept before they are iterated',
+    rel.indexOf('sweepReleases') > 0 && rel.indexOf('sweepReleases') < rel.indexOf('for (const watch'));
+  t('a paused extension does not poll releases',
+    rel.indexOf('cfg.running') < rel.indexOf('sweepReleases'));
+
+  // The bell reads the group from the listing's page state, which on the real
+  // site holds only the first rendered batch — so a watch can arrive knowing
+  // one event code and nothing else. That is the case the group exists to
+  // prevent, so it is repaired later rather than left half-built.
+  const back = grabFrom(bg, 'backfillWatch');
+  t('a watch missing its group is repaired on a later check',
+    /if \(watch\.group && watch\.releaseDate\) return false;/.test(back));
+  t('the repair applies to the check it happens on, not just the next',
+    /watch\.group = page\.group/.test(back) && !/const next = \{ \.\.\.watch \}/.test(back));
+  t('the repaired watch is persisted', /setCfg\(\{ releases: cfg\.releases \}\)/.test(back));
+  t('a hopeless lookup is not retried forever', />= LOOKUP_TRIES/.test(back));
+  t('the counter resets once it worked', /st\.lookupTries = 0;/.test(back));
+  t('checkRelease repairs before it matches',
+    /await backfillWatch\(watch, st, cfg\)/.test(grabFrom(bg, 'checkRelease')));
+  t('matching on one code only is said out loud, not left silent',
+    /matched on \+?\s*'?\s*'one event code only/.test(bg.replace(/\s+/g, ' ')) ||
+    /one event code only/.test(bg));
+
+  const chk = grabFrom(bg, 'checkRelease');
+  t('a theatre-scoped check uses byvenue', chk.includes('byVenueApi'));
+  t('a theatre-scoped check matches on the film', chk.includes('matchesFilm'));
+  t('an any-theatre check reads the film page', chk.includes('bookingSignal'));
+  t('an unknown signal never fires an alert',
+    /signal === 'open' && st\.signal !== 'open'/.test(chk));
+  t('an unknown signal is recorded as a warning', /signal === 'unknown'/.test(chk));
+
+  // Two kinds of alert share one surface; the id is all that survives a worker
+  // teardown, so it has to be the thing that tells them apart.
+  t('release notifications are prefixed', /const RELEASE_NOTIF = 'release:'/.test(bg));
+  t('a click routes by that prefix', /isReleaseNotif\(id\) \? openRelease\(id\) : openSeats\(id\)/.test(bg));
+
+  const add = grabFrom(bg, 'addRelease');
+  t('the group and date are fetched once, on add', add.includes('parseFilmPage'));
+  // The retirement sweep would drop it on the next tick, so creating it at all
+  // just makes the bell lie.
+  t('a film already in cinemas is refused, not created and swept',
+    /alreadyOut: true/.test(add) &&
+    add.indexOf('alreadyOut') < add.indexOf('releases: [...cfg.releases, watch]'));
+  t('and the bell explains why instead of showing a tick',
+    /res\.alreadyOut/.test(cr) && /Already in cinemas/.test(cr));
+
+  t('a failed lookup still creates the watch',
+    add.indexOf('lookupError') > 0 && add.indexOf('lookupError') < add.indexOf('setCfg'));
+
+  // A bell clicked on BookMyShow carries no theatres; the picker in settings is
+  // the only place they exist, so a new watch has to inherit them or the picker
+  // is decorative.
+  t('a new watch inherits the chosen theatres', /defaultVenuesFor\(cfg, city\.code\)/.test(add));
+  t('the settings page saves every city’s theatres, not just the visible one',
+    /defaultVenues: Object\.fromEntries/.test(oj));
+  // Read from the model, not from the DOM: the list is filtered as you type,
+  // and a checked box scrolled out of the filter must not be silently dropped.
+  t('the picker keeps its selection outside the DOM',
+    /let venueChoices = new Map\(\)/.test(oj));
+  // Venue codes only mean anything inside one city, so the selection is keyed
+  // by city — changing city used to clear it and lose the lot.
+  t('the selection is kept per city', /venueChoices\.set\(/.test(oj) &&
+    /const cityKey = \(\) => chosenCity\(\)\?\.code/.test(oj));
+  t('changing city no longer clears the picker',
+    !/venueChoice = new Set\(\);\s*\/\/ codes are per city/.test(oj) &&
+    /Deliberately not cleared/.test(oj));
+  t('empty cities are not written back', /set\.size\)/.test(oj));
+
+  // Per-film theatres: one picker, pointed somewhere explicit.
+  t('the picker has a target, not a hidden mode', /id="venueTarget"/.test(oh) &&
+    /function paintTargets/.test(oj));
+  t('the target is hidden until a film is watched here', /row\.hidden = !mine\.length/.test(oj));
+  t('only films in the city on screen can be edited',
+    /watches\.filter\(\(w\) => w\.regionCode === code\)/.test(oj));
+  t('editing one film does not touch the default',
+    /if \(editing\) \{/.test(oj) && /watchChoices\.get\(editing\)/.test(oj));
+  t('changing city drops back to the default target',
+    /editing = null;\s*\n\s*paintTargets\(\);/.test(oj));
+  t('per-film theatres are saved through the worker, not written past it',
+    /type: 'setReleaseVenues'/.test(oj) && /msg\.type === 'setReleaseVenues'/.test(bg));
+  t('an empty per-film list means any theatre, stored as null',
+    /Array\.isArray\(list\) && list\.length \? \[\.\.\.list\] : null/.test(bg));
+  t('the worker rereads before writing, so a running check is not clobbered',
+    (() => { const h = bg.slice(bg.indexOf("msg.type === 'setReleaseVenues'"));
+             return h.indexOf('await getCfg()') < h.indexOf('setCfg('); })());
+
+  t('a watch with no film page says so instead of fetching a bad address',
+    /!watch\.slug \|\| !watch\.eventCode/.test(chk) &&
+    chk.indexOf('!watch.slug') < chk.indexOf('R.fetchText(R.filmUrl'));
+
+  t('the bell keys watches on the group first',
+    /const keysFor = \(film\) => \[film\.group, film\.eventCode\]/.test(cr));
+  t('the bell reads the group from the page state', /event_group/.test(cr));
+  // A crossed-out bell means "muted" everywhere else; it must not be the thing
+  // you click to start being told about something.
+  t('the bell is never shown crossed out', !/🔕/.test(cr));
+  t('the bell confirms with a tick, like the + button does', /on \? '✓'/.test(cr));
+  // Reloading a page lost the tick: the worker is asleep when a page loads, the
+  // first message to it is refused, and a bell painted blank was then skipped
+  // by every later pass.
+  t('a refused watch list is reported, not swallowed',
+    /return false;/.test(cr) && /const ok = await loadWatched\(\)/.test(cr));
+  t('and asked for again', /function retryLoad/.test(cr) && /if \(!ok\) retryLoad\(\)/.test(cr));
+  t('the retry gives up rather than hammering', /retries >= 4/.test(cr));
+  t('an existing bell is repainted, never skipped',
+    /paint\(existing, isWatched\(/.test(cr) &&
+    !/if \(card\.querySelector\(`\.\$\{BELL\}-btn`\)\) continue;/.test(cr));
+  t('the keys live on the element so a later load can find them',
+    /btn\.dataset\.bellKeys = keys\.join/.test(cr));
+
+  // The two sides used to key on `group || eventCode` independently, and
+  // addRelease fills the group in from the film page AFTER the bell sent none.
+  // A page that could only produce the event code then found nothing under it
+  // and drew an unwatched bell for a film that was being watched.
+  t('a watch is registered under every identifier it has',
+    /for \(const k of \[w\.group, w\.eventCode\]\) if \(k\) watched\.set\(k, w\.id\)/.test(cr));
+  t('a bell carries every identifier it could be matched by',
+    /btn\.dataset\.bellKeys = keys\.join\(','\)/.test(cr));
+  t('matching tries each identifier in turn',
+    /function watchIdFor/.test(cr) && /for \(const k of keys\) if \(watched\.has\(k\)\)/.test(cr));
+  t('no single-key lookup survives', !/dataset\.bellKey\b/.test(cr) &&
+    !/watched\.has\(key\)/.test(cr));
+  t('unwatching clears every identifier, not just the one clicked',
+    /for \(const k of keys\) watched\.delete\(k\)/.test(cr));
+
+  // Removing a watch needs its id, which used to exist only if you had clicked
+  // to create it in this same page view.
+  t('the watch id comes from the list, not from an earlier click',
+    /watched = new Map\(\)/.test(cr) && /watchIdFor\(keys\) \|\| film\.watchId/.test(cr));
+  t('the list is stored as key to id', /watched\.set\(k, w\.id\)/.test(cr));
+
+  // Repainting writes textContent, which is a childList mutation, which wakes
+  // the observer, which schedules the repaint again — a message to the worker
+  // every 400ms for as long as the tab is open.
+  t('painting the state it already has touches nothing',
+    /if \(btn\.textContent === glyph && btn\.classList\.contains\('is-on'\) === on\) return;/.test(cr));
+  t('the observer ignores mutations targeting our own elements',
+    /isOurs\(r\.target\)/.test(cr));
+
+  t('the bell does not hijack the card it sits on',
+    /e\.preventDefault\(\)/.test(cr) && /e\.stopPropagation\(\)/.test(cr));
+  // The card's text is the whole card — genre, like count, the name twice — and
+  // storing it as the film's name is what "Once MoreDrama/Romantic 15.6K+ Likes"
+  // in the popup was.
+  // Removing a watch happens in the popup, which writes storage. A page that
+  // only learns the list on load kept showing a tick for a film that was gone.
+  t('the bell follows changes made elsewhere',
+    /chrome\.storage\.onChanged\.addListener/.test(cr) && /changes\.releases/.test(cr));
+  t('and repaints rather than waiting for a reload',
+    (() => { const h = cr.slice(cr.indexOf('chrome.storage.onChanged'));
+             const paint = h.indexOf('repaintAll()');
+             const start = h.search(/\brun\(\)(\.catch)?/);
+             return paint > 0 && start > 0 && paint < start; })());
+  t('only local storage changes count', /area !== 'local'/.test(cr));
+  // The + buttons have done this since the beginning; the two now behave alike.
+  t('the + buttons still do the same', /chrome\.storage\.onChanged/.test(cs) &&
+    /if \(!changes\.shows\) return;/.test(cs));
+
+  t('the bell never scrapes a title out of the card',
+    !/a\.textContent/.test(cr));
+  t('a nameless watch falls back to the slug, not the event code',
+    /R\.titleFromSlug\(watch\.slug\)/.test(bg));
+  t('a title is cleaned once, wherever it came from',
+    /watch\.title = R\.cleanTitle\(watch\.title\)/.test(bg));
+  // Deterministic, so it can be applied to what is already stored — unlike a
+  // guess at which titles are rubbish.
+  t('already-stored titles are repaired', /async function repairTitles/.test(bg) &&
+    /await repairTitles\(cfg\)/.test(bg));
+  t('the repair writes only when something changed', /if \(!changed\) return 0;/.test(bg));
+  // ago() is the whole phrase, so prefixing it repeats the word.
+  {
+    const pj = readFileSync(here('popup.js'), 'utf8');
+    const ph = readFileSync(here('popup.html'), 'utf8');
+    // "Watching" used to mean only "not paused", so an empty extension claimed
+    // to be watching directly above "Nothing on watch yet".
+    t('the header tells watching apart from merely switched on',
+      /const onWatch = live\.length \+ \(s\.releases \|\| \[\]\)\.length/.test(pj) &&
+      /mode === 'watching' \? 'Watching' : 'Ready'/.test(pj));
+    t('a release watch counts as watching', /s\.releases \|\| \[\]/.test(pj));
+
+  // The welcome page opens on first install only, so an existing user has no
+  // in-product path to a new feature without this.
+  t('an update from before the feature flags a notice',
+    /reason === 'update' && olderThan\(previousVersion, '1\.3\.0'\)/.test(bg));
+  t('the notice is a line in the popup, not a tab forced open',
+    /chrome\.storage\.local\.set\(\{ whatsNew/.test(bg) &&
+    !/reason === 'update'[\s\S]{0,200}tabs\.create/.test(bg));
+  t('versions are compared as numbers, so 1.10 is not older than 1.9',
+    /String\(version \|\| ''\)\.split\('\.'\)\.map\(Number\)/.test(bg));
+  t('the popup shows it and clears it once acted on',
+    /function paintWhatsNew/.test(pj) && /remove\('whatsNew'\)/.test(pj));
+
+    // Clearing a film's theatres stores venues: null — "any theatre" — while the
+    // previous check's mode is still recorded as 'venues'. Keying the row on the
+    // stale mode read .length off null and took the whole popup down.
+    t('the row describes the watch as it is now, not what the last check did',
+      /else if \(w\.venues\?\.length\)/.test(pj) && !/st\.last\?\.mode === 'venues'/.test(pj));
+    t('a theatre count with no check yet still reads sensibly',
+      /ago\(st\.last\?\.at\)/.test(pj));
+    t('the idle pip is not filled in', /\.pip\.ready \{ background: transparent/.test(ph));
+    t('idle and paused do not look the same',
+      /\.pip\.paused \{ background: var\(--free\)/.test(ph));
+  }
+
+  t('the popup does not say "checked" twice',
+    !/checked \$\{ago\(/.test(readFileSync(here('popup.js'), 'utf8')));
+
+  t('the bell stays off buytickets pages, where + already lives',
+    /!p\.includes\('\/buytickets\/'\)/.test(cr));
+  t('a city hint never overrides a chosen city', /if \(!cfg\.city &&/.test(bg));
+
+  // The two modes are kept on separate panels; the seat-watch sections must
+  // still be exactly where they were, just wrapped.
+  t('the settings page has three panels', (oh.match(/role="tabpanel"/g) || []).length === 3);
+  t('every tab controls a panel that exists',
+    [...oh.matchAll(/aria-controls="(panel-[a-z]+)"/g)].every(m => oh.includes(`id="${m[1]}"`)));
+  t('two panels start hidden', (oh.match(/role="tabpanel"[^>]*hidden/g) || []).length === 2);
+  t('the seat-watch sections are still there',
+    oh.includes('>Shows<') && oh.includes('>How often it checks<') &&
+    oh.includes('>What counts as worth telling you about<'));
+  t('release settings live on their own panel',
+    oh.indexOf('id="panel-release"') < oh.indexOf('>Upcoming films<') &&
+    oh.indexOf('>Upcoming films<') < oh.indexOf('id="panel-alerts"'));
+  // Save writes every field on the page, so it must not sit inside one panel.
+  t('save stays outside the panels',
+    oh.lastIndexOf('</div>') < oh.indexOf('id="save"') ||
+    oh.indexOf('id="save"') > oh.lastIndexOf('role="tabpanel"'));
+  t('tabs are a real tablist', /role="tablist"/.test(oh) && /aria-selected/.test(oh));
+  t('arrow keys move between tabs', /ArrowRight/.test(oj) && /ArrowLeft/.test(oj));
+  t('the chosen tab survives a reopen', /localStorage\.setItem\(TAB_KEY/.test(oj));
+  t('a private window does not break the tabs', /catch \{ \/\* private window/.test(oj));
+  // Only the two modes carry a meaning-colour; alerts is plumbing, not a state.
+  t('the alerts tab claims no state colour', /data-panel="alerts"\]\s*\{ --lit: var\(--edge-2\)/.test(oh));
+
+  // Four bugs put the theatre picker in a state that told you to fix the one
+  // thing you had already done. Each gets a test.
+  t('an empty cinema list is never cached',
+    /if \(!venues\.length\) return hit\?\.venues \|\| \[\]/.test(bg));
+  // Comments talk about the bug, so they have to come out before looking for it.
+  // One empty value is legitimate — the picker's target select uses it for "the
+  // default for new films" — so the check is that it is the ONLY one, not that
+  // there are none.
+  {
+    const code = oj.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+    const empties = code.match(/<option value=""[^>]*>/g) || [];
+    t('the city control never renders an option that cannot be chosen',
+      empties.length === 1 && /<option value="">New films/.test(code));
+  }
+  t('a rejected regions message cannot strand the placeholder',
+    /sendMessage\(\{ type: 'regions' \}\)\s*\n?\s*\.catch/.test(oj));
+  t('a failed city lookup still offers cities', /res\?\.fallback/.test(oj) &&
+    /fallback: R\.FALLBACK_REGIONS/.test(bg));
+  t('the selected city is adopted when none was saved',
+    /s\.city\?\.slug \? s\.city : chosenCity\(\)/.test(oj));
+  t('"pick a city" is only said when no city is picked',
+    /!chosenCity\(\)\s*\n?\s*\? '<div class="none">Pick a city first/.test(oj));
+  t('an empty cinema list explains itself and offers a way on',
+    /No cinemas came back for that city/.test(oj));
+
+  // The refresh used to be a .quiet button — transparent, borderless, flush
+  // under a bordered box, which read as a stray line of grey text.
+  t('the refresh is a real button, not a quiet one',
+    /<button id="venueRefresh"/.test(oh) && !/class="quiet" id="venueRefresh"/.test(oh));
+  t('it sits in the picker frame rather than loose beneath it',
+    oh.indexOf('class="venuefoot"') > oh.indexOf('id="venues"') &&
+    oh.indexOf('class="venuefoot"') < oh.indexOf('</div>', oh.indexOf('class="venuefoot"')));
+  t('the rail says how many cinemas there are', /id="venueCount"/.test(oh) &&
+    /function venueTally/.test(oj));
+  t('nothing picked is said with silence, not "0 picked"',
+    /if \(picked\) parts\.push/.test(oj));
+  t('the button reports its own progress', /Refreshing…/.test(oj));
+  t('the button is restored even if the refresh throws', /finally \{/.test(oj));
+  // The empty-state tells you to press a control; it has to use that control's
+  // actual name.
+  t('the empty state names the button as the button is named',
+    /<b>Refresh<\/b>/.test(oj) && !/Refresh the cinema list<\/b>/.test(oj));
+
+  const rl = readFileSync(here('release.js'), 'utf8');
+  t('release fetches try anonymously first', /for \(const credentials of \['omit', 'include'\]\)/.test(rl));
+  t('release.js never reads a cookie', !/document\.cookie/.test(rl));
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

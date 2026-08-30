@@ -6,6 +6,8 @@
  * notification when a contiguous block of free seats appears.
  */
 
+import * as R from './release.js';
+
 const SOLD = 2;             // seatStatus 2 = Booked / Held
 const PITCH = 32;           // seats sit on a 28px grid; wider means an aisle
 const TICK_MINUTES = 0.5;   // scheduler granularity
@@ -202,6 +204,16 @@ const DEFAULTS = {
   shows: [],
   state: {},      // url -> { nextCheck, notified: [], fails, retired, last }
   running: true,
+
+  // Release watching keeps its own lists. Sharing `shows` would have meant
+  // every consumer of it — the popup, the badge, the retirement sweep —
+  // learning to skip a kind of row it cannot render or schedule.
+  city: null,             // { slug, code, name }
+  venueCache: {},         // citySlug -> { at, venues: [{code,name,dates}] }
+  releases: [],           // [{ id, group, eventCode, slug, title, releaseDate,
+                          //    citySlug, regionCode, venues: null | [code] }]
+  releaseState: {},       // id -> { nextCheck, fails, seen: {}, last }
+  release: R.RELEASE_DEFAULTS,
 };
 
 async function getCfg() {
@@ -212,6 +224,10 @@ async function getCfg() {
     // Merged per key, not replaced: a config saved before a band existed must
     // still get that band's default rather than undefined.
     cadence: { ...CADENCE, ...(s.cadence || {}) },
+    releases: s.releases || [],
+    releaseState: s.releaseState || {},
+    venueCache: s.venueCache || {},
+    release: { ...R.RELEASE_DEFAULTS, ...(s.release || {}) },
   };
 }
 const setCfg = (patch) => chrome.storage.local.set(patch);
@@ -458,15 +474,59 @@ const jitter = (sec) => Math.round(sec * (0.85 + Math.random() * 0.3));
 
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-async function sendTelegram(tg, html) {
-  if (!tg?.botToken || !tg?.chatId) throw new Error('Telegram not configured');
-  const res = await fetch(`https://api.telegram.org/bot${tg.botToken}/sendMessage`, {
+/**
+ * The destinations one alert goes to.
+ *
+ * A Telegram chat id is a group as readily as it is a person — that is how a
+ * whole group of friends gets told at once, with one machine doing the
+ * watching. The field holds a list so an alert can reach the group *and* your
+ * own chat, and the stored shape is unchanged: a single id parses to a list of
+ * one, so a config written before this reads exactly as it did.
+ */
+const chatList = (tg) => String(tg?.chatId ?? '')
+  .split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean);
+
+/**
+ * Sends to every destination, independently.
+ *
+ * One dead id must not silence the others: a group somebody removed the bot
+ * from would otherwise take the alert down for everyone still in it. Each
+ * failure is collected and reported; the send only counts as failed if nothing
+ * arrived anywhere.
+ */
+async function sendTelegram(tg, html, { button } = {}) {
+  const chats = chatList(tg);
+  if (!tg?.botToken || !chats.length) throw new Error('Telegram not configured');
+
+  const failed = [];
+  let sent = 0;
+  for (const chatId of chats) {
+    try {
+      await sendTelegramTo(tg.botToken, chatId, html, button);
+      sent++;
+    } catch (e) {
+      failed.push(`${chatId}: ${String(e.message || e)}`);
+    }
+  }
+  if (!sent) throw new Error(failed.join('; ') || 'Telegram not configured');
+  return { sent, failed };
+}
+
+async function sendTelegramTo(botToken, chatId, html, button) {
+  const payload = {
+    chat_id: chatId, text: html,
+    parse_mode: 'HTML', disable_web_page_preview: true,
+  };
+  // A tappable button rather than a link buried in the text. On a phone, in a
+  // group, the difference between one tap and hunting for a link is the
+  // difference between getting the seats and reading about them.
+  if (button?.url) {
+    payload.reply_markup = { inline_keyboard: [[{ text: button.text || 'Book now', url: button.url }]] };
+  }
+  const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chat_id: tg.chatId, text: html,
-      parse_mode: 'HTML', disable_web_page_preview: true,
-    }),
+    body: JSON.stringify(payload),
   });
   const body = await res.json().catch(() => ({}));
   if (!body.ok) throw new Error(body.description || `HTTP ${res.status}`);
@@ -602,9 +662,22 @@ async function wake(url) {
   await refreshBadge();
 }
 
-chrome.notifications.onClicked.addListener(openSeats);
-chrome.notifications.onButtonClicked.addListener((url, index) => {
-  index === 1 ? snooze(url) : openSeats(url);
+/**
+ * Two kinds of alert now share one notification surface, and the id is the only
+ * thing that travels from firing to click — the service worker may well have
+ * been torn down in between. Seat alerts use the show's URL as their id, so a
+ * prefix that cannot appear in one keeps the two apart without a lookup table
+ * that would not survive the teardown.
+ */
+const RELEASE_NOTIF = 'release:';
+const isReleaseNotif = (id) => String(id).startsWith(RELEASE_NOTIF);
+
+chrome.notifications.onClicked.addListener((id) => {
+  isReleaseNotif(id) ? openRelease(id) : openSeats(id);
+});
+chrome.notifications.onButtonClicked.addListener((id, index) => {
+  if (isReleaseNotif(id)) return openRelease(id);
+  index === 1 ? snooze(id) : openSeats(id);
 });
 
 // ---------------------------------------------------------------- core
@@ -693,8 +766,13 @@ async function checkShow(show, cfg) {
     delete st.telegramError;
     delete st.webhookError;
     if (cfg.telegram?.botToken && cfg.telegram?.chatId) {
-      try { await sendTelegram(cfg.telegram, buildMessage(named, data, fresh)); }
-      catch (e) { st.telegramError = String(e.message || e).slice(0, 120); }
+      try {
+        const out = await sendTelegram(cfg.telegram, buildMessage(named, data, fresh),
+          { button: { text: 'Open seats', url: show.url } });
+        // Partial delivery is not success. Somebody is not being told, and the
+        // only place that can surface is here.
+        if (out.failed.length) st.telegramError = out.failed.join('; ').slice(0, 160);
+      } catch (e) { st.telegramError = String(e.message || e).slice(0, 120); }
     }
     if (cfg.webhook) {
       try { await sendWebhook(cfg.webhook, buildPlain(named, data, fresh), heading); }
@@ -803,26 +881,515 @@ async function refreshBadge() {
   await chrome.action.setBadgeText({ text: !cfg.running ? '' : hits ? String(hits) : (live ? '·' : '') });
 }
 
+// ------------------------------------------------------- release watching
+
+/**
+ * Adds a film to the release list, learning what it needs on the way in.
+ *
+ * The group code and the release date are both fetched here, once, rather than
+ * on every check. That is the difference between a watch costing one request an
+ * hour and costing one request per check for a fact that changes at most once.
+ * If the fetch fails the watch is still created — an unscheduled watch that
+ * polls from now is a far better outcome than refusing to watch a film at all.
+ */
+async function addRelease(entry) {
+  const cfg = await getCfg();
+  const city = cfg.city || entry.city;
+  if (!city?.slug || !city?.code) throw new Error('no city set');
+
+  const id = `${city.code}:${entry.group || entry.eventCode}`;
+  if (cfg.releases.some((w) => w.id === id)) return { already: true, id };
+
+  const watch = {
+    id,
+    eventCode: entry.eventCode || null,
+    group: entry.group || null,
+    slug: entry.slug || null,
+    title: entry.title || '',
+    releaseDate: entry.releaseDate || null,
+    citySlug: city.slug,
+    regionCode: city.code,
+    // A bell clicked on BookMyShow carries no theatres — the page has no idea
+    // which cinemas you care about. The picker in settings is where that lives,
+    // so a new watch inherits the ones chosen for this city. Empty there
+    // genuinely means "any theatre".
+    venues: entry.venues?.length ? entry.venues
+      : (defaultVenuesFor(cfg, city.code) || null),
+    addedAt: Date.now(),
+  };
+
+  if (watch.slug && watch.eventCode && (!watch.group || !watch.releaseDate)) {
+    try {
+      const page = R.parseFilmPage(
+        await R.fetchText(R.filmUrl(city.slug, watch.slug, watch.eventCode)));
+      watch.group = watch.group || page.group;
+      watch.releaseDate = watch.releaseDate || page.releaseDate;
+      watch.title = watch.title || page.title || '';
+    } catch (e) {
+      watch.lookupError = String(e.message || e).slice(0, 120);
+    }
+  }
+  // Still nameless — the page had no title for it and the lookup did not run or
+  // did not answer. The slug is the film's name with the hyphens in, which
+  // beats showing an event code.
+  if (!watch.title) watch.title = R.titleFromSlug(watch.slug) || watch.eventCode || '';
+  // Whatever the source — the card's analytics, the film page, the slug — the
+  // stored name is the shown name, so it is cleaned once, here.
+  watch.title = R.cleanTitle(watch.title);
+
+  // A film that is already out has nothing left to announce, and the retirement
+  // sweep would drop this watch on the very next tick. Creating it anyway meant
+  // the bell went ✓ and the watch quietly disappeared — the worst of both, since
+  // it looks like it worked. Say so instead, and point at the control that does
+  // help once a film is playing.
+  if (watch.releaseDate && R.isExpired(watch, Date.now())) {
+    return { alreadyOut: true, title: watch.title || watch.eventCode };
+  }
+
+  await setCfg({
+    releases: [...cfg.releases, watch],
+    releaseState: { ...cfg.releaseState, [id]: { seen: {}, fails: 0, nextCheck: 0 } },
+  });
+  return { id, watch };
+}
+
+/**
+ * The alert. Names the theatres, because "bookings are open" without them sends
+ * you to look through a list you have already told this extension about.
+ */
+function notifyRelease(watch, opened, cfg) {
+  // Grouped by day, because a premiere and release day are two different things
+  // to decide about and a flat list of cinemas would not say which opened.
+  const where = opened.venues?.length ? describeOpened(opened.venues) : 'Booking is open';
+  const premiere = opened.venues?.some((v) => v.premiere);
+  const heading = premiere
+    ? `Premiere booking open — ${watch.title || watch.eventCode}`
+    : `Booking open — ${watch.title || watch.eventCode}`;
+
+  chrome.notifications.create(RELEASE_NOTIF + watch.id, {
+    type: 'basic',
+    iconUrl: 'icon128.png',
+    title: heading,
+    message: where,
+    priority: 2,
+    requireInteraction: true,
+    buttons: [{ title: 'Open BookMyShow' }],
+  }, () => void chrome.runtime.lastError);
+
+  const link = releaseLink(watch, opened);
+  const plain = `${heading}\n${where}\n${link}`;
+  if (cfg.telegram?.botToken && cfg.telegram?.chatId) {
+    sendTelegram(cfg.telegram, `<b>${esc(heading)}</b>\n${esc(where)}`,
+      { button: { text: 'Book now', url: link } })
+      .catch(() => { /* the desktop notification already fired */ });
+  }
+  if (cfg.webhook) sendWebhook(cfg.webhook, plain, heading).catch(() => { /* ditto */ });
+}
+
+/**
+ * "Premiere · Thu, 27 Aug — ALLU Cinemas: Kokapet", one line per day.
+ *
+ * The day leads because it is the thing that decides whether you act tonight or
+ * on Friday; the cinema answers where. Earliest day first, which puts the
+ * premiere above release day on its own.
+ */
+function describeOpened(venues) {
+  const byDay = new Map();
+  for (const v of venues) {
+    const key = v.when || '';
+    if (!byDay.has(key)) byDay.set(key, []);
+    byDay.get(key).push(v.name || v.code);
+  }
+  return [...byDay].map(([when, names]) => {
+    const shown = names.slice(0, 3).join(', ') +
+      (names.length > 3 ? ` +${names.length - 3} more` : '');
+    return when ? `${when} — ${shown}` : shown;
+  }).join('\n');
+}
+
+/**
+ * Where a release alert leads. The buytickets listing for release day, because
+ * that is the page carrying the + buttons — the alert hands you straight to the
+ * thing that starts a seat watch.
+ */
+function releaseLink(watch, opened) {
+  // The earliest day that opened, not release day: an alert about a premiere
+  // that lands you on Friday's listing has sent you to the wrong page.
+  const day = opened?.venues?.map((v) => v.date).filter(Boolean).sort()[0];
+  const date = day || watch.releaseDate || R.toDateCode(new Date());
+  return watch.slug && watch.eventCode
+    ? R.buyTicketsUrl(watch.citySlug, watch.slug, watch.eventCode, date)
+    : R.upcomingUrl(watch.citySlug);
+}
+
+async function openRelease(notifId) {
+  const id = String(notifId).slice(RELEASE_NOTIF.length);
+  chrome.notifications.clear(notifId);
+  const cfg = await getCfg();
+  const watch = cfg.releases.find((w) => w.id === id);
+  if (!watch) {
+    chrome.tabs.create({ url: R.upcomingUrl(cfg.city?.slug || 'hyderabad'), active: true });
+    return;
+  }
+  // Which day to open. The notification carries only the watch id, so the day
+  // is recovered from what has been seen: the earliest date recorded is the
+  // premiere if there was one, and release day otherwise. Opening Friday's
+  // listing for an alert about Thursday's premiere is the wrong page.
+  const days = Object.keys(cfg.releaseState[id]?.seen || {})
+    .map((k) => k.split('|')[2]).filter(Boolean).sort();
+  const opened = days.length ? { venues: [{ date: days[0] }] } : undefined;
+  chrome.tabs.create({ url: releaseLink(watch, opened), active: true });
+}
+
+/**
+ * One check.
+ *
+ * Two paths, and they are not equally trustworthy. A watch naming theatres asks
+ * byvenue about exactly those, and matches on the group code — exact, and it
+ * reports which cinema opened. A watch naming none has no such call available
+ * (the film-wide endpoint answers 400 to everything, see probes/FINDINGS.md), so
+ * it falls back to reading the film's own page, which distinguishes the two
+ * states only by wording. That path can go stale silently, so it is the one
+ * place `unknown` is recorded and surfaced rather than treated as "no".
+ */
+/**
+ * Fills in what a watch could not learn when it was created.
+ *
+ * The bell reads the group code out of the listing page's own state, and on the
+ * real site that state holds only the first server-rendered batch — a film
+ * further down the list arrives with no group at all. `addRelease` covers that
+ * by reading the film's page, but if that one request fails the watch is stored
+ * knowing only a single event code.
+ *
+ * That is the exact thing the group exists to avoid: a film has several event
+ * codes (Irumudi has three), and the one that goes on sale need not be the one
+ * the card showed. So a watch missing its group is repaired on later checks
+ * rather than left half-built for good.
+ *
+ * Bounded, because a slug that 404s will never resolve and retrying it on every
+ * check forever is just noise. What it gives up on, it says.
+ */
+const LOOKUP_TRIES = 5;
+
+async function backfillWatch(watch, st, cfg) {
+  if (watch.group && watch.releaseDate) return false;
+  if (!watch.slug || !watch.eventCode) return false;
+  if ((st.lookupTries || 0) >= LOOKUP_TRIES) return false;
+
+  st.lookupTries = (st.lookupTries || 0) + 1;
+  try {
+    const page = R.parseFilmPage(
+      await R.fetchText(R.filmUrl(watch.citySlug, watch.slug, watch.eventCode)));
+    const before = `${watch.group}|${watch.releaseDate}|${watch.title}`;
+    // Mutated in place: this is the same object the caller is checking, so the
+    // group learned here applies to this check rather than only the next one.
+    if (!watch.group && page.group) watch.group = page.group;
+    if (!watch.releaseDate && page.releaseDate) watch.releaseDate = page.releaseDate;
+    if (!watch.title && page.title) watch.title = R.cleanTitle(page.title);
+    if (`${watch.group}|${watch.releaseDate}|${watch.title}` === before) return false;
+
+    st.lookupTries = 0;
+    delete st.lookupError;
+    await setCfg({ releases: cfg.releases });
+    return true;
+  } catch (e) {
+    st.lookupError = String(e.message || e).slice(0, 120);
+    return false;
+  }
+}
+
+async function checkRelease(watch, cfg) {
+  const st = cfg.releaseState[watch.id] || { seen: {}, fails: 0 };
+  const now = Date.now();
+
+  await backfillWatch(watch, st, cfg);
+  const dates = R.datesFor(watch, cfg.release.premiereDays);
+
+  try {
+    if (watch.venues?.length) {
+      const names = venueNames(cfg, watch.citySlug);
+      const opened = [];
+      for (const venueCode of watch.venues) {
+        for (const date of dates) {
+          const body = await R.fetchJson(R.byVenueApi(venueCode, date, watch.regionCode));
+          const mine = R.parseByVenue(body, venueCode).filter((c) => R.matchesFilm(c, watch));
+          for (const child of mine) {
+            const key = R.seenKey(venueCode, child.eventCode, date);
+            if (st.seen[key]) continue;
+            st.seen[key] = now;
+            opened.push({ code: venueCode, name: names.get(venueCode) || venueCode,
+                          shows: child.shows.length, language: child.language,
+                          date, premiere: R.isPremiere(date, watch),
+                          when: R.dateLabel(date, watch) });
+          }
+          await sleep(700);
+        }
+      }
+      st.last = { at: now, mode: 'venues', checked: watch.venues.length,
+                  dates: dates.length,
+                  open: Object.keys(st.seen).length, fired: opened.length,
+                  // Worth surfacing on its own: a premiere opening is a
+                  // different decision from release day opening.
+                  premiere: opened.some((o) => o.premiere) || undefined };
+      if (!watch.group && (st.lookupTries || 0) >= LOOKUP_TRIES) {
+        st.last.warn = 'Couldn’t read this film’s group code, so it is matched on ' +
+                       'one event code only — a different language or format may be missed.';
+      }
+      if (opened.length) notifyRelease(watch, { venues: opened }, cfg);
+    } else if (!watch.slug || !watch.eventCode) {
+      // The any-theatre check reads the film's own page, and that address needs
+      // both halves. Without them there is no check to make — say so plainly
+      // rather than fetching /movies/city/null/… and reporting a 404 forever.
+      st.last = { at: now, mode: 'any', signal: 'unknown',
+                  warn: 'This watch has no film page to read. Pick theatres for it instead.' };
+      st.signal = 'unknown';
+    } else {
+      const html = await R.fetchText(R.filmUrl(watch.citySlug, watch.slug, watch.eventCode));
+      const signal = R.bookingSignal(html);
+      st.last = { at: now, mode: 'any', signal };
+      // Only a transition fires. Re-alerting every ten minutes for a film that
+      // has been on sale since yesterday would train you to ignore the alert.
+      if (signal === 'open' && st.signal !== 'open') notifyRelease(watch, {}, cfg);
+      if (signal === 'unknown') {
+        st.last.warn = 'BookMyShow page no longer says either "Book tickets" or ' +
+                       '"Releasing on" — this watch cannot tell if booking opened.';
+      }
+      st.signal = signal;
+    }
+    st.fails = 0;
+  } catch (e) {
+    st.fails = (st.fails || 0) + 1;
+    st.last = { at: now, error: String(e.message || e).slice(0, 160) };
+    // Back off on repeated failure, but never past the configured cadence by
+    // more than a few multiples — a watch that has given up is worse than one
+    // that is merely slow.
+    st.nextCheck = now + jitter(Math.min(60 * st.fails, 900)) * 1000;
+    cfg.releaseState[watch.id] = st;
+    await setCfg({ releaseState: cfg.releaseState });
+    return st;
+  }
+
+  st.nextCheck = R.nextCheckAt(now, cfg.release.intervalMinutes);
+  cfg.releaseState[watch.id] = st;
+  await setCfg({ releaseState: cfg.releaseState });
+  return st;
+}
+
+/** The picker's choices for one city, or null when it named none. */
+function defaultVenuesFor(cfg, cityCode) {
+  const picked = R.venuesForCity(cfg.release.defaultVenues, cityCode, cfg.city?.code);
+  return picked.length ? picked : null;
+}
+
+/** Venue codes to names, for alerts, out of whatever the picker last cached. */
+function venueNames(cfg, citySlug) {
+  const list = cfg.venueCache?.[citySlug]?.venues || [];
+  return new Map(list.map((v) => [v.code, v.name]));
+}
+
+/**
+ * Drops watches whose film is out. Nothing else removes them, and a list that
+ * only grows is a list nobody keeps.
+ */
+async function sweepReleases(cfg) {
+  const now = Date.now();
+  const keep = cfg.releases.filter((w) => !R.isExpired(w, now));
+  if (keep.length === cfg.releases.length) return 0;
+  const state = { ...cfg.releaseState };
+  for (const w of cfg.releases) if (R.isExpired(w, now)) delete state[w.id];
+  const dropped = cfg.releases.length - keep.length;
+  cfg.releases = keep;
+  cfg.releaseState = state;
+  await setCfg({ releases: keep, releaseState: state });
+  return dropped;
+}
+
+/**
+ * Tidies titles that were stored before they were cleaned properly.
+ *
+ * Safe to run over anything, which is why it runs at all: decoding an entity
+ * and dropping a trailing year are deterministic, and doing either to an
+ * already-clean title changes nothing. That is the difference between this and
+ * guessing which stored titles were scraped rubbish — a guess would eventually
+ * eat a real name, so that one is left to the person who added the watch.
+ */
+async function repairTitles(cfg) {
+  let changed = 0;
+  const releases = cfg.releases.map((w) => {
+    const title = R.cleanTitle(w.title || '');
+    if (!title || title === w.title) return w;
+    changed++;
+    return { ...w, title };
+  });
+  if (!changed) return 0;
+  cfg.releases = releases;
+  await setCfg({ releases });
+  return changed;
+}
+
+async function runDueReleases(force = false) {
+  const cfg = await getCfg();
+  if (!cfg.running && !force) return;
+  if (!cfg.release.enabled && !force) return;
+  await sweepReleases(cfg);
+  await repairTitles(cfg);
+  const now = Date.now();
+  for (const watch of cfg.releases) {
+    // Measured against the earliest date the watch asks about, not release day.
+    // With a short dormancy and a premiere the night before, waking on release
+    // day would mean the premiere had already been and gone unwatched.
+    if (!force && now < R.wakesAtWithPremieres(watch, cfg.release.dormancyDays,
+                                               cfg.release.premiereDays)) continue;
+    const st = cfg.releaseState[watch.id] || {};
+    if (!force && st.nextCheck && now < st.nextCheck) continue;
+    await checkRelease(watch, cfg);
+    await sleep(1200);
+  }
+}
+
+/** The city's cinema list, cached — it is a picker's contents, not a signal. */
+const VENUE_CACHE_HOURS = 24 * 7;
+
+async function venuesFor(citySlug, { refresh = false } = {}) {
+  const cfg = await getCfg();
+  const hit = cfg.venueCache[citySlug];
+  const fresh = hit && (Date.now() - hit.at) < VENUE_CACHE_HOURS * 3600 * 1000;
+  if (hit && fresh && !refresh) return hit.venues;
+
+  const venues = R.parseCinemas(await R.fetchText(R.cinemasUrl(citySlug)));
+  // An empty result is a failure, not an answer. Caching it pinned the picker
+  // empty for a week and made a transient fetch problem look permanent — and
+  // "refresh the cinema list" would have been the one thing that did not help.
+  if (!venues.length) return hit?.venues || [];
+  await setCfg({ venueCache: { ...cfg.venueCache, [citySlug]: { at: Date.now(), venues } } });
+  return venues;
+}
+
 // ---------------------------------------------------------------- wiring
 
-chrome.runtime.onInstalled.addListener(({ reason }) => {
+/**
+ * Is this an update from before a feature existed?
+ *
+ * Compared as numbers rather than strings, because "1.10" sorts before "1.9"
+ * as text and would then never announce anything again.
+ */
+function olderThan(version, target) {
+  const a = String(version || '').split('.').map(Number);
+  const b = String(target).split('.').map(Number);
+  for (let i = 0; i < b.length; i++) {
+    const x = a[i] || 0, y = b[i] || 0;
+    if (x !== y) return x < y;
+  }
+  return false;
+}
+
+chrome.runtime.onInstalled.addListener(({ reason, previousVersion }) => {
   chrome.alarms.create('tick', { periodInMinutes: TICK_MINUTES });
   refreshBadge();
   // Only on a genuine first install — not on every update, and not on a browser
   // restart, both of which also fire this listener.
   if (reason === 'install') {
     chrome.tabs.create({ url: chrome.runtime.getURL('welcome.html') });
+  } else if (reason === 'update' && olderThan(previousVersion, '1.3.0')) {
+    // Not a tab. Opening one on every update is the kind of thing that gets an
+    // extension uninstalled, and this is a feature worth mentioning once rather
+    // than insisting on. The popup shows a line until it is dismissed — and the
+    // popup is somewhere the user goes anyway.
+    chrome.storage.local.set({ whatsNew: '1.3' });
   }
 });
 chrome.runtime.onStartup.addListener(() => {
   chrome.alarms.create('tick', { periodInMinutes: TICK_MINUTES });
   refreshBadge();
 });
-chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'tick') runDue(); });
+chrome.alarms.onAlarm.addListener((a) => {
+  if (a.name !== 'tick') return;
+  // Seats first: they are time-critical in a way a release date is not.
+  runDue().then(runDueReleases);
+});
 
 chrome.runtime.onMessage.addListener((msg, sender, respond) => {
   (async () => {
-    if (msg.type === 'checkNow')  { await runDue(true); respond({ ok: true }); }
+    if (msg.type === 'checkNow')  { await runDue(true); await runDueReleases(true); respond({ ok: true }); }
+
+    // ---- release watching ------------------------------------------------
+    else if (msg.type === 'addRelease') {
+      try { respond({ ok: true, ...(await addRelease(msg.entry || {})) }); }
+      catch (e) { respond({ ok: false, error: String(e.message || e) }); }
+    }
+    else if (msg.type === 'removeRelease') {
+      const cfg = await getCfg();
+      const state = { ...cfg.releaseState };
+      delete state[msg.id];
+      await setCfg({ releases: cfg.releases.filter((w) => w.id !== msg.id), releaseState: state });
+      respond({ ok: true });
+    }
+    else if (msg.type === 'listReleases') {
+      const cfg = await getCfg();
+      respond({
+        ok: true, city: cfg.city, settings: cfg.release,
+        releases: cfg.releases.map((w) => ({
+          ...w,
+          state: cfg.releaseState[w.id] || {},
+          dormantUntil: R.wakesAtWithPremieres(w, cfg.release.dormancyDays, cfg.release.premiereDays),
+        })),
+      });
+    }
+    // Answers "is this film already watched" for the button on a BookMyShow
+    // page, by group rather than by event code — the code on the page may be
+    // one of several for the film, and all of them are the same watch.
+    else if (msg.type === 'releaseWatched') {
+      const cfg = await getCfg();
+      const w = cfg.releases.find((x) =>
+        (msg.group && x.group === msg.group) || (msg.eventCode && x.eventCode === msg.eventCode));
+      respond({ ok: true, watched: Boolean(w), id: w?.id || null });
+    }
+    else if (msg.type === 'venues') {
+      try { respond({ ok: true, venues: await venuesFor(msg.citySlug, { refresh: msg.refresh }) }); }
+      catch (e) { respond({ ok: false, error: String(e.message || e) }); }
+    }
+    else if (msg.type === 'regions') {
+      // The fallback rides along on both answers, so the settings page never
+      // has to render a city control that cannot be used.
+      try {
+        const regions = R.parseRegions(await R.fetchJson(R.regionsApi()));
+        respond({ ok: true, regions, fallback: R.FALLBACK_REGIONS });
+      } catch (e) {
+        respond({ ok: false, error: String(e.message || e), fallback: R.FALLBACK_REGIONS });
+      }
+    }
+    else if (msg.type === 'setCity') {
+      await setCfg({ city: msg.city });
+      respond({ ok: true });
+    }
+    // Per-film theatres. Read-modify-write inside the worker rather than letting
+    // the settings page write `releases` itself: a check running at the same
+    // moment updates state on the same object, and a blind overwrite from the
+    // page would undo it.
+    else if (msg.type === 'setReleaseVenues') {
+      const cfg = await getCfg();
+      const wanted = msg.venues || {};
+      const releases = cfg.releases.map((w) => {
+        if (!(w.id in wanted)) return w;
+        const list = wanted[w.id];
+        // Empty means "any theatre", which is a real choice and stored as null
+        // so nothing downstream has to tell an empty array from an absent one.
+        return { ...w, venues: Array.isArray(list) && list.length ? [...list] : null };
+      });
+      await setCfg({ releases });
+      respond({ ok: true, changed: releases.filter((w, i) => w !== cfg.releases[i]).length });
+    }
+    else if (msg.type === 'setReleaseSettings') {
+      const cfg = await getCfg();
+      await setCfg({ release: { ...cfg.release, ...msg.settings } });
+      respond({ ok: true });
+    }
+    // The city the browser is already set to, so nothing has to be asked twice.
+    else if (msg.type === 'cityHint') {
+      const cfg = await getCfg();
+      if (!cfg.city && msg.city?.slug && msg.city?.code) await setCfg({ city: msg.city });
+      respond({ ok: true, city: cfg.city || msg.city || null });
+    }
     else if (msg.type === 'addShow') {
       const cfg = await getCfg();
       if (cfg.shows.some(s => s.url === msg.url)) return respond({ ok: true, already: true });
@@ -856,8 +1423,8 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
     else if (msg.type === 'ping') {
       const cfg = await getCfg();
       try {
-        await sendTelegram(cfg.telegram, '✅ Seat Watch is wired up correctly.');
-        respond({ ok: true });
+        const out = await sendTelegram(cfg.telegram, '✅ Seat Watch is wired up correctly.');
+        respond({ ok: true, sent: out.sent, failed: out.failed });
       } catch (e) { respond({ ok: false, error: String(e.message || e) }); }
     }
     else if (msg.type === 'pingWebhook') {

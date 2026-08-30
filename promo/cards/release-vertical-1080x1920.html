@@ -1,0 +1,32 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Seat Watch — vertical release card</title>
+<link rel="stylesheet" href="card.css">
+<body>
+<div class="card is-release card--vertical">
+
+  <div style="display:flex; flex-direction:column; gap:34px">
+    <div class="kicker">Seat Watch for BookMyShow</div>
+    <h1>Found out<br>from a friend.<br><span class="hl">Again</span>.</h1>
+    <p class="sub">Booking opens without warning. Know the moment it does.</p>
+  </div>
+
+  <div class="board" id="board"></div>
+
+  <div style="display:flex; flex-direction:column; gap:26px">
+    <div class="foot">
+      <div class="brand">
+        <img src="../../icon128.png" alt="">
+        <div>
+          <div class="name">Seat Watch</div>
+          <div class="where">Free on the Chrome Web Store</div>
+        </div>
+      </div>
+      <div class="pill">no server &middot; no account</div>
+    </div>
+    <div class="fine">Not affiliated with, endorsed by, or connected to BookMyShow.</div>
+  </div>
+
+</div>
+<script src="board.js"></script>
+<script>drawBoard(document.getElementById('board'));</script>

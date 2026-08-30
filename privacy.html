@@ -40,21 +40,34 @@
   <h2>What it stores</h2>
   <ul>
     <li>The seat-map addresses you chose to watch, and a label for each.</li>
+    <li>The films you chose to watch for a release — the film, the city, and the
+        cinemas you picked for it.</li>
+    <li>The city you selected, and the list of cinemas in it, kept for a week so the
+        settings page has something to show you without fetching it again.</li>
     <li>What the last check found — seat counts, which blocks were free, and a
-        recent history of how many seats were free over time.</li>
-    <li>Your filter settings and how often to check.</li>
-    <li>Your Telegram bot token and chat ID, or your webhook address, if you set
-        them up. These are stored unencrypted, readable by anything with access to
-        your Chrome profile. Fine for a bot you made for this; don't reuse one that
-        does anything important.</li>
+        recent history of how many seats were free over time. For a release watch,
+        which cinemas have opened.</li>
+    <li>Your filter settings, how often to check, and how far ahead of a release to
+        start.</li>
+    <li>Your Telegram bot token and the chat IDs you chose to alert, or your webhook
+        address, if you set them up. These are stored unencrypted, readable by
+        anything with access to your Chrome profile. Fine for a bot you made for
+        this; don't reuse one that does anything important.</li>
   </ul>
 
   <h2>What leaves your machine</h2>
   <ul>
-    <li><b>BookMyShow</b> — pages are loaded in your own browser, in your own logged-in
-        session, exactly as if you'd opened them yourself. No credentials are read
-        or transmitted.</li>
-    <li><b>Telegram</b>, only if you configure it, and only the alert text.</li>
+    <li><b>BookMyShow</b> — seat maps are loaded in your own browser, in your own
+        logged-in session, exactly as if you'd opened them yourself. No credentials
+        are read or transmitted.</li>
+    <li><b>BookMyShow, anonymously where it can</b> — the checks that watch for a film
+        to go on sale ask for public listings only, and are tried first with cookies
+        switched off, carrying nothing that identifies you. In practice that is how
+        they are answered. If a request is refused that way it is retried with your
+        session, exactly as loading the page yourself would send it.</li>
+    <li><b>Telegram</b>, only if you configure it, and only the alert text. If you point
+        it at a group, everyone in that group sees the alert — that is what the option
+        is for, and it is worth knowing before you add one.</li>
     <li><b>Your webhook address</b>, only if you configure one, and only the alert text.
         Chrome asks your permission for that specific address before it is used.</li>
   </ul>

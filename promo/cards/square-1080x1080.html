@@ -1,0 +1,44 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Seat Watch — square card</title>
+<link rel="stylesheet" href="card.css">
+<body>
+<div class="card card--square">
+
+  <div style="display:flex; flex-direction:column; gap:30px">
+    <div class="kicker">Seat Watch for BookMyShow</div>
+    <h1>Sold out<br>isn't <span class="hl">final</span>.</h1>
+    <p class="sub">Cinemas hold seats back &mdash; and quietly put them on sale <b>1&ndash;3 hours before showtime</b>.</p>
+  </div>
+
+  <div class="hall" id="hall">
+    <div class="legend" style="order:3">
+      <span><i style="background:var(--open)"></i><em>4 for you</em></span>
+      <span><i style="background:var(--free)"></i><em>free</em></span>
+      <span><i style="background:var(--taken)"></i><em>taken</em></span>
+    </div>
+  </div>
+
+  <div style="display:flex; flex-direction:column; gap:26px">
+    <div class="foot">
+      <div class="brand">
+        <img src="../../icon128.png" alt="">
+        <div>
+          <div class="name">Seat Watch</div>
+          <div class="where">Free on the Chrome Web Store</div>
+        </div>
+      </div>
+      <div class="pill">no server &middot; no account</div>
+    </div>
+    <div class="fine">Not affiliated with, endorsed by, or connected to BookMyShow.</div>
+  </div>
+
+</div>
+
+<script src="hall.js"></script>
+<script>
+  drawHall(document.getElementById('hall'), {
+    rows: 8, seat: 13, gap: 4, aisle: 22,
+    match: { row: 5, block: 1, from: 4, len: 4 },
+  });
+</script>

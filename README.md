@@ -1,5 +1,9 @@
 # Seat Watch for BookMyShow
 
+**[Install from the Chrome Web Store →](https://chromewebstore.google.com/detail/seat-watch-for-bookmyshow/hkbeaeicmbnldhgfkoonkkebdlphnohn)** · free, no account, no server
+
+[**Watch the demo →**](https://www.youtube.com/watch?v=PXEYwPYnXAc) · 60 seconds
+
 Watches BookMyShow seat-layout pages from inside your own logged-in Chrome and tells you
 when a block of adjacent seats opens up — the blocked-inventory releases that tend to land
 1–3 hours before showtime.
@@ -28,6 +32,12 @@ why the filters are about size and position rather than mere availability.
 
 ## Install
 
+**[From the Chrome Web Store](https://chromewebstore.google.com/detail/seat-watch-for-bookmyshow/hkbeaeicmbnldhgfkoonkkebdlphnohn)** — then pin it, so you can see the badge.
+
+### From source
+
+For working on it, or for running a version ahead of what the store has approved:
+
 1. Open `chrome://extensions`
 2. Turn on **Developer mode** (top right)
 3. Click **Load unpacked** and pick this folder
@@ -36,6 +46,29 @@ why the filters are about size and position rather than mere availability.
 No build step, no npm, nothing to compile.
 
 ## Alerts on your phone (optional)
+
+### Telling a group of friends
+
+A Telegram chat id is a group as readily as a person, so one machine can watch
+and everyone hears about it. Put as many destinations in the field as you like,
+separated by commas — a group and your own chat, or two groups. Each is sent to
+independently: a group somebody removed the bot from fails on its own rather
+than taking the alert down for everyone still in it, and the failure is reported
+rather than swallowed.
+
+Every alert carries a tappable **Book now** button straight to the seat map or
+the booking page, because on a phone, in a group, one tap beats finding a link
+in a paragraph.
+
+To add a group: create it, add your bot, then send `/start@yourbotname` in it.
+That last step is the one people miss — a bot cannot read ordinary group
+chatter, so the group stays invisible to **Find mine** until the bot is
+addressed directly. Group ids are negative, like `-1001234567890`; the minus
+sign is normal.
+
+Worth knowing before you set this up: everyone is told at the same moment and
+anyone can act on it. For a first-day scramble that can mean your friends racing
+each other for the same seats.
 
 Desktop notifications work on their own. For anything more, Settings offers two routes:
 
@@ -163,6 +196,124 @@ Both endpoint paths are host-relative, so the requests are same-origin by constr
 need no permission beyond the one the extension already has.
 
 You can still paste a seat-layout URL into Settings by hand.
+
+## Watching for a release
+
+The `+` needs a showtime to exist before you can click it, and that is the problem
+it cannot solve: by the time a first-day show is listed, the seats worth having
+are often gone. A release watch attaches to a *film* instead of a showing, so it
+can be set weeks earlier — on the upcoming list, where there is nothing to book
+yet.
+
+Every film on `bookmyshow.com/explore/upcoming-movies-<city>` picks up a bell.
+
+Both this and the `+` are injected across the whole of `in.bookmyshow.com`
+rather than only on listing pages, and do nothing on pages they do not
+recognise. That is not thoroughness for its own sake: a content script is
+injected once, against the URL its document loaded with, and every click inside
+BookMyShow after that is a `pushState` with no load. Matching only listings
+meant that arriving anywhere else and clicking through produced no buttons at
+all until you reloaded. It grants no extra access — the host permission already
+covers the whole site — and the install-time warning is unchanged.
+Click it and the film lands in **Settings → Release watch**.
+
+### Pick your theatres
+
+This is the difference between a good alert and a vague one, and it is worth two
+minutes.
+
+**With theatres chosen**, each check asks BookMyShow's own per-cinema listing
+what is playing at exactly those cinemas on release day, and matches on the
+film's `EventGroup`. That comparison is exact. When it fires, it names the
+cinema that opened.
+
+Each watched film keeps its own theatres. The **Choosing for** control above the
+list points the picker at either *New films* — what a newly belled film starts
+with — or at one film you are already watching, so changing one leaves the others
+and the default alone. Only films watched in the city on screen are offered:
+venue codes mean nothing outside their own city, so a Hyderabad cinema list
+cannot say anything useful about a film being watched in Mumbai. Switch city and
+that film becomes editable, alongside its own cinemas.
+
+Your choice is remembered **per city**. Venue codes only mean anything inside
+their own city, so switching city shows that city's cinemas and its own picks —
+and switching back brings yours with it. Looking at another city never costs you
+the selection you were setting up, and saving writes them all.
+
+**With none chosen**, there is no such call available — the film-wide endpoint
+refuses every request the extension can construct (see `probes/FINDINGS.md`), so
+the check falls back to reading the film's own page and looking for "Book
+tickets". That tells you booking opened *somewhere in your city* and nothing
+more. It also leans on wording BookMyShow can change at any time, so it is
+reported in three states rather than two: open, not yet, and **can't tell**. The
+last one never fires an alert and shows as a warning in the popup, because a
+detector that quietly reads "no" would leave a watch silent through the exact
+moment it exists for.
+
+### Why it matches on a group, not a film code
+
+One film has several event codes. *Irumudi* has three, all Telugu:
+`ET00487933`, `ET00513073`, `ET00513087`. Which of them goes on sale is not
+knowable in advance, so a watch bound to the code that happened to be on the card
+you clicked would miss the others — silently, and in a way indistinguishable from
+the film simply never opening.
+
+Every one of them carries the same `EventGroup`, and so does the card on the
+upcoming list. That is what a watch stores, and the match is exact string
+equality with no normalising, no title comparison, and no guessing.
+
+The listing page only carries state for the films it rendered on the server, so
+a film further down the list reaches the bell with no group. The watch is then
+completed from the film's own page — at the moment it is added, and on later
+checks if that first attempt failed. Five tries, then it gives up and says so:
+a watch matching on a single event code still works, but it can miss the
+language or format that actually goes on sale, and that is worth knowing rather
+than discovering afterwards.
+
+### Premieres and preview shows
+
+A film's first showings are often not on its release date. Premieres, benefit shows,
+paid previews and 1am screenings run the night before — and for a big release they are
+frequently the **first** thing to go on sale and the thing people most want.
+
+So a watch asks about the night before release as well as release day. That is one extra
+request per cinema per check, which is why it is one night by default rather than a
+window; **Also watch _n_ nights before release** in Settings changes it, and 0 turns it
+off.
+
+Two consequences worth knowing. A premiere opening and release day opening are separate
+events, so you get told about each — the alert says which, and leads to that day's
+listing rather than always to release day. And a watch now wakes before its earliest
+premiere rather than before release day, so a short dormancy setting cannot sleep
+straight through the premiere.
+
+### How often, and when it starts
+
+One flat interval, ten minutes by default, set in Settings. Unlike seat checks
+there are no bands: booking does not open on a schedule that a cadence table
+could anticipate.
+
+A watch stays **dormant until seven days before release** — also configurable. A
+film three months out, checked every ten minutes, is about thirteen thousand
+requests before the first one could possibly matter. Sleeping until the release
+is in sight costs nothing, because booking does not open months ahead. A film
+whose release date could not be read is never held back: not knowing when it
+opens is a reason to start early, not late.
+
+A watch is dropped once its release date is a day behind, whether or not it ever
+fired.
+
+### What it costs
+
+Release checks run in the service worker as plain `fetch`, with
+`credentials: 'omit'`. They open no tab, need no visible window, and carry
+nothing that identifies you — the per-cinema listing was measured returning
+byte-identical responses with and without a session. None of the watcher-window
+machinery below applies to them; that is only for seat maps, which need a
+rendered canvas.
+
+Nothing here is shared with the seat watcher except the alert channels. Pausing
+the extension pauses both.
 
 ## What counts as a block worth telling you about
 

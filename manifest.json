@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Seat Watch for BookMyShow",
-  "version": "1.2.0",
-  "description": "Watches BookMyShow seat maps and tells you when a block of adjacent seats opens up.",
+  "version": "1.3.0",
+  "description": "Watches BookMyShow and tells you when seats open up on a show \u2014 or when booking opens for a film you're waiting on.",
   "permissions": [
     "alarms",
     "storage",
@@ -23,12 +23,22 @@
   "content_scripts": [
     {
       "matches": [
-        "https://in.bookmyshow.com/cinemas/*",
-        "https://in.bookmyshow.com/movies/*",
-        "https://in.bookmyshow.com/*/buytickets/*"
+        "https://in.bookmyshow.com/*"
       ],
       "js": [
         "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://in.bookmyshow.com/*"
+      ],
+      "js": [
+        "content-release.js"
       ],
       "css": [
         "content.css"
