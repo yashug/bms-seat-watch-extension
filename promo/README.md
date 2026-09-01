@@ -9,6 +9,7 @@ Everything for taking Seat Watch public. Three pieces:
 | [`youtube.md`](youtube.md) | Title, description, chapters, upload settings and pinned comment for the demo video. |
 | [`release-script.md`](release-script.md) | The 1.3 video: its own hook — *you found out too late* — with shot list, a vertical cut, and how to film an alert honestly. |
 | [`release-copy.md`](release-copy.md) | Post copy for the 1.3 update across X, Instagram, LinkedIn, Reddit and group chats. |
+| [`youtube-release.md`](youtube-release.md) | Title, description, upload settings and pinned comment for the 1.3 video. |
 | [`cards/`](cards/) | Social cards, rendered to PNG. `release-*` are the 1.3 set. |
 
 ## How the copy is built, and the one thing still yours to fill in
