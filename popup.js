@@ -324,8 +324,15 @@ function paint() {
         body += `<div class="quiet-line">and ${last.blocks - hits.length} more</div>`;
       }
     } else {
-      body = `<div class="quiet-line">Nothing big enough is free yet.</div>`;
+      // Naming the filter that is doing the excluding. "Nothing free yet" and
+      // "nothing free yet in row H" are different things to be told, and the
+      // second one is the difference between waiting and widening the search.
+      body = `<div class="quiet-line">Nothing big enough is free yet${
+        last.rows ? ` in ${esc(last.rows)}` : ''}.</div>`;
     }
+    // A row named that this hall does not have narrows the watch silently —
+    // nothing else on screen would ever say so.
+    if (last.rowWarn) body += `<div class="quiet-line warn">${esc(last.rowWarn)}</div>`;
 
     const showMap = !!last.map && !st.retired;
 
@@ -426,15 +433,29 @@ function paint() {
  * so without this the release half would simply never be mentioned to anyone
  * who already had the extension.
  */
+/**
+ * What each update is worth saying, keyed by how far back the user was.
+ *
+ * A line about per-language alerts means nothing to somebody who has never seen
+ * release watching, so the worker decides which of these applies and stores it;
+ * this only renders it.
+ */
+const WHATS_NEW = {
+  '1.3': '<b>New:</b> watch a film that isn’t on sale yet, and get told ' +
+         'the moment booking opens.',
+  '1.4': '<b>New:</b> a film out in several languages now alerts per language, ' +
+         'and you can name the rows you’d actually sit in.',
+};
+
 function paintWhatsNew() {
   const host = $('new');
-  const show = Boolean((snapshot || {}).whatsNew);
-  host.hidden = !show;
-  if (!show || host.dataset.built) return;
-  host.dataset.built = '1';
+  const version = (snapshot || {}).whatsNew;
+  const line = WHATS_NEW[version];
+  host.hidden = !line;
+  if (!line || host.dataset.built === version) return;
+  host.dataset.built = version;
   host.innerHTML =
-    '<div class="msg"><b>New:</b> watch a film that isn’t on sale yet, and get told ' +
-    'the moment booking opens.</div>' +
+    `<div class="msg">${line}</div>` +
     '<button data-new="show">Show me</button>' +
     '<button class="quiet x" data-new="hide" aria-label="Dismiss">✕</button>';
 }
@@ -485,11 +506,22 @@ function paintReleases() {
     const sub = w.releaseDate && !sleeping && !st.last?.warn
       ? `${note} · every ${every}m` : note;
 
+    // A film out in several languages is several listings, and which ones this
+    // watch has found is the difference between "it will tell me" and "it will
+    // tell me about the Malayalam one". Shown only once there is more than one,
+    // so an ordinary single-language film stays a single line.
+    const langs = [w.language, ...(w.variants || []).map((v) => v.language)]
+      .map((x) => String(x || '').trim()).filter(Boolean);
+    const shown = [...new Set(langs)];
+    const tail = shown.length > 1
+      ? `<div class="sub langs">${esc(shown.join(' · '))}</div>` : '';
+
     return `<div class="film">
       <span class="dot ${cls}"></span>
       <div class="who">
         <div class="title">${esc(w.title || w.eventCode)}</div>
         <div class="sub">${esc(sub)}</div>
+        ${tail}
       </div>
       <button class="x" data-dropfilm="${esc(w.id)}">${
         (confirming.get(w.id) || 0) > Date.now() ? 'Sure?' : 'Stop'}</button>

@@ -6,7 +6,14 @@ thing anyone reasonable would try is the film-wide endpoint that returns 400 to
 everything — four rounds of probing established that, and re-establishing it costs a
 day.
 
-[`health-check.js`](health-check.js) is the only script still worth running. Paste it
+[`probe-lang.js`](probe-lang.js) answered the multi-language question on
+2026-09-02 — its results are in FINDINGS.md, and they are the reason alerts are
+per language: the `EventGroup` is shared across languages, the `EventUrl` is not.
+Worth re-running against another release if a film ever alerts for one language
+only. Paste it into a console on any `in.bookmyshow.com` page; the film it tests
+is the `FILM` constant at the top.
+
+[`health-check.js`](health-check.js) is the only other script still worth running. Paste it
 into the service worker console when release watches stop firing, before assuming the
 bug is in the extension. It checks the four calls the feature depends on and names
 whichever one changed.

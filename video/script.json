@@ -1,0 +1,232 @@
+{
+  "voice": "Tara",
+  "rate": 166,
+  "scenes": [
+    {
+      "id": "hook",
+      "vo": "Cinemas don't sell out. They stop offering.",
+      "captions": [
+        [
+          "Cinemas don't sell out.",
+          0
+        ],
+        [
+          "They stop offering.",
+          1.6
+        ]
+      ],
+      "hold": 1.4
+    },
+    {
+      "id": "why",
+      "vo": "Seats get held back — for distributors, for staff, for corporate blocks. When nobody claims them, they go back on sale. Usually one to three hours before the show. And nothing announces it. The page just quietly changes.",
+      "captions": [
+        [
+          "Held seats go back on sale 1–3 hrs before showtime.",
+          0
+        ],
+        [
+          "Nothing announces it. The page just changes.",
+          5.6
+        ]
+      ],
+      "hold": 0.8
+    },
+    {
+      "id": "add",
+      "vo": "So Seat Watch adds a small plus to every showtime on BookMyShow. Click it — including on the sold out ones. Those are the ones worth watching.",
+      "captions": [
+        [
+          "A + on every showtime.",
+          0
+        ],
+        [
+          "Including the sold-out ones.",
+          3.4
+        ]
+      ],
+      "hold": 0.7
+    },
+    {
+      "id": "list",
+      "vo": "The show lands in your watch list with its film, cinema, screen and start time already filled in. Nothing to type.",
+      "captions": [
+        [
+          "Film, cinema, screen and start time — already filled in.",
+          0
+        ]
+      ],
+      "hold": 0.8
+    },
+    {
+      "id": "criteria",
+      "vo": "Now, what counts as worth telling you about. It isn't watching for a free seat. It's watching for seats together — no aisle between them.",
+      "captions": [
+        [
+          "Not \"a seat is free.\"",
+          0
+        ],
+        [
+          "Seats together, no aisle between them.",
+          2.6
+        ]
+      ],
+      "hold": 0.6
+    },
+    {
+      "id": "position",
+      "vo": "And position, which is the setting that decides whether an alert is worth acting on. Four seats in the front corner and four dead centre are the same price. Only one of them is worth leaving the house for.",
+      "captions": [
+        [
+          "Where in the hall · rows to skip at the front",
+          0
+        ],
+        [
+          "Same price. Not the same evening.",
+          5.2
+        ]
+      ],
+      "hold": 0.7
+    },
+    {
+      "id": "hall",
+      "vo": "The popup draws the hall the way the check found it. Pale grey is taken, slate blue is free, and only the runs that match your filters take the green — joined, so four together reads as four together.",
+      "captions": [
+        [
+          "The hall, as the last check found it.",
+          0
+        ],
+        [
+          "Green = a block that matches your filters.",
+          4.8
+        ]
+      ],
+      "hold": 1.0
+    },
+    {
+      "id": "cadence",
+      "vo": "Every show runs on its own clock. A screening next week is barely touched. One starting tonight is watched hard — down to every ninety seconds inside the window when releases actually happen.",
+      "captions": [
+        [
+          "Checks speed up as showtime approaches.",
+          0
+        ],
+        [
+          "Hardest inside the release window.",
+          4.6
+        ]
+      ],
+      "hold": 0.7
+    },
+    {
+      "id": "alert",
+      "vo": "When a matching block appears, a desktop notification tells you the film, the row, and how many seats. Click it — or Book now in the popup — and Chrome opens the seat map at exactly those seats.",
+      "captions": [
+        [
+          "A notification: the film, the row, the block.",
+          0
+        ],
+        [
+          "Click through, straight to those seats.",
+          5.4
+        ]
+      ],
+      "hold": 1.2
+    },
+    {
+      "id": "release",
+      "vo": "There's a second half to this. The plus button needs a showtime to exist before you can click it — and by the time a first day show is listed, the seats worth having are often gone. So you can watch the film instead. Click the bell on BookMyShow's upcoming list, weeks before there's anything to book.",
+      "captions": [
+        [
+          "Booking hasn't opened yet?",
+          0
+        ],
+        [
+          "Click the bell on any upcoming film.",
+          3.2
+        ],
+        [
+          "Get told the moment it goes on sale.",
+          8.0
+        ]
+      ],
+      "hold": 0.8
+    },
+    {
+      "id": "sleep",
+      "vo": "It sleeps until release is in sight, because booking doesn't open months ahead. And it watches the premieres too — the one a.m. previews are often the first thing on sale.",
+      "captions": [
+        [
+          "Sleeps until release is close. Watches premieres too.",
+          0
+        ]
+      ],
+      "hold": 0.7
+    },
+    {
+      "id": "venues",
+      "vo": "Pick the cinemas you'd actually go to, and the alert names which of them opened — not just somewhere in the city.",
+      "captions": [
+        [
+          "Your cinemas, named in the alert.",
+          0
+        ]
+      ],
+      "hold": 0.8
+    },
+    {
+      "id": "elsewhere",
+      "vo": "If you'd rather be told on your phone, there's a webhook — a Discord channel or an ntfy topic works as it is — or Telegram, which takes as many destinations as you like. A group counts as one, so one machine watches and everybody hears about it.",
+      "captions": [
+        [
+          "Webhook: Discord, ntfy, or plain JSON.",
+          0
+        ],
+        [
+          "Telegram: a group counts as one destination.",
+          5.4
+        ]
+      ],
+      "hold": 0.8
+    },
+    {
+      "id": "trust",
+      "vo": "There's no server behind this and no account to make. Your watch list lives in your own browser, and every check is a real page load from your own logged in Chrome. It doesn't book anything for you. It tells you, and you decide.",
+      "captions": [],
+      "hold": 1.0
+    },
+    {
+      "id": "card",
+      "vo": "Seat Watch for BookMyShow. Free, on the Chrome Web Store.",
+      "captions": [],
+      "hold": 2.2
+    }
+  ],
+  "cuts": {
+    "master": [
+      "hook",
+      "why",
+      "add",
+      "list",
+      "criteria",
+      "position",
+      "hall",
+      "cadence",
+      "alert",
+      "release",
+      "sleep",
+      "venues",
+      "elsewhere",
+      "trust",
+      "card"
+    ],
+    "social": [
+      "hook",
+      "why",
+      "add",
+      "hall",
+      "alert",
+      "card"
+    ]
+  }
+}

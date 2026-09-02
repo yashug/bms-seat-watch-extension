@@ -1,0 +1,6 @@
+node_modules/
+out/
+public/states/
+public/vo/
+public/music/
+shots/_stub/

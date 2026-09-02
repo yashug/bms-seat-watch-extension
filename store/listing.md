@@ -140,6 +140,15 @@ than once a minute.
 
 NEW IN THIS VERSION
 
+• A film released in several languages now alerts you per language. The Malayalam,
+  Telugu and Hindi listings of one film are three separate bookings on BookMyShow,
+  and each one now gets its own alert and its own link.
+• Rows. Name the rows you'd actually sit in — "F-K", or "H, J" — and only those
+  count. Ranges follow the hall's own row order, so a hall that skips row I means
+  what you meant.
+
+EARLIER
+
 • Watch a film that isn't on sale yet, and get told the moment booking opens —
   including premieres and previews the night before release.
 • Choose which cinemas count, and the alert names the one that opened.
@@ -350,14 +359,18 @@ for a reason that has nothing to do with your code.
 ### 3. Build the package
 
 ```sh
-zip -r seat-watch-1.3.0.zip . \
+zip -r seat-watch-1.4.0.zip . \
   -x '.*' -x '__MACOSX*' -x 'verify.mjs' -x 'store/*' -x 'icons/*' \
-  -x 'docs/*' -x 'probes/*' -x 'promo/*' -x 'package.json' \
-  -x 'README.md' -x '*.zip'
+  -x 'docs/*' -x 'probes/*' -x 'promo/*' -x 'video/*' -x 'package.json' \
+  -x 'README.md' -x '*.zip' -x '.DS_Store' -x '*/.DS_Store'
 ```
 
 `package.json` exists only so Node can import `release.js` in the tests; Chrome ignores
 it, and it has no business in the package. `probes/` and `promo/` are working material.
+**`video/` matters most of the four** — it carries a `node_modules` with a headless Chrome
+in it, so forgetting that exclusion turns a 116 KB upload into a rejected one. Preflight
+checks for it rather than trusting this line to stay current.
+
 Everything else at the root ships — including `release.js` and `content-release.js`,
 which the manifest and the service worker both need.
 
@@ -423,8 +436,30 @@ requested up front, and Chrome asks per address at the moment one is pasted.
 
 ### Updating an existing listing — what actually needs touching
 
-This is an update, not a first submission, so most of the form is already filled in. The
-fields that changed:
+This is an update, not a first submission, so most of the form is already filled in.
+
+#### 1.4.0 — the current one
+
+| Field | Why |
+|---|---|
+| **Package** | `seat-watch-1.4.0.zip` |
+| **Description** | One line on each of the two changes, at the changelog at the end |
+| **Everything else** | Unchanged |
+
+A quiet update by store standards: no new permission, no new content script, no new host.
+Both changes are refinements of what 1.3.0 already did, so expect a patch-speed review
+rather than the slow one 1.3.0 got.
+
+What changed, in the words the changelog uses:
+
+- **A film out in several languages alerts per language.** Malayalam, Telugu and Hindi are
+  three listings of one film with three different event codes, and 1.3.0 folded them into
+  a single alert linking to whichever one you happened to add. Each language now gets its
+  own alert, its own link, and — where theatres are picked — the cinema it opened at.
+- **Rows.** Name the rows you'd actually sit in (`F-K`, `H, J`) and only those count. Ranges
+  follow the hall's own row order, so a hall that skips I means what you meant.
+
+#### 1.3.0 — what that update needed, kept for reference
 
 | Field | Why |
 |---|---|
@@ -436,12 +471,8 @@ fields that changed:
 | **Permission justifications** | `storage`, `scripting` and the BookMyShow host permission |
 | **Privacy policy URL** | Unchanged, but **re-publish `docs/privacy.html`** — the hosted copy is generated and the old one no longer matches the code |
 
-Unchanged: name, category, the permissions themselves, the promo tile, and every privacy
-answer (all still "No").
-
-**Expect a slower review than a patch.** No new permission is requested, but the diff is
-visible: a second content script, and both of them now matching the whole host instead of
-three paths. The host justification explains why before anyone has to ask.
+Unchanged across both: name, category, the permissions themselves, the promo tile, and
+every privacy answer (all still "No").
 
 ### After it's live
 

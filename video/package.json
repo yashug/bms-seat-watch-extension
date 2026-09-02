@@ -1,0 +1,30 @@
+{
+  "name": "seat-watch-demo-video",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "states": "sh shots/build-states.sh",
+    "voice": "sh voice/build-voice.sh",
+    "studio": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts Demo out/seat-watch-demo.mp4 --concurrency=4",
+    "render:short": "remotion render src/index.ts Short out/seat-watch-short-x.mp4 --concurrency=4",
+    "render:loop": "remotion render src/index.ts Loop out/seat-watch-loop.mp4 --concurrency=4 --muted",
+    "render:addfilm": "remotion render src/index.ts AddFilm out/seat-watch-add-film.mp4 --concurrency=4 --muted",
+    "render:addfilm:gif": "remotion render src/index.ts AddFilm out/seat-watch-add-film.gif --concurrency=4 --muted --every-nth-frame=3 --width=720",
+    "build": "sh shots/build-states.sh && sh voice/build-voice.sh && npm run music && npm run render:all",
+    "music": "python3 music/build-music.py && python3 music/build-music.py social",
+    "render:reel": "remotion render src/index.ts Reel out/seat-watch-reel.mp4 --concurrency=4",
+    "render:square": "remotion render src/index.ts Square out/seat-watch-square.mp4 --concurrency=4",
+    "render:all": "npm run render && npm run render:short && npm run render:reel && npm run render:square && npm run render:loop && npm run render:addfilm"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.520",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "remotion": "4.0.520"
+  },
+  "devDependencies": {
+    "@types/react": "19.0.0",
+    "typescript": "5.6.3"
+  }
+}

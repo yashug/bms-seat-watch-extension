@@ -356,19 +356,148 @@ export function parseByVenue(body, venueCode) {
 }
 
 /**
+ * Every identifier a watch answers to.
+ *
+ * A watch is created from one language's page, and that language is only one of
+ * the film's listings. I'm Game is Malayalam ET00473215, Telugu ET00511702 and
+ * Hindi ET00511704 — three codes, and on the evidence of that film three
+ * *groups* too, because BookMyShow does not always file a dub under the
+ * original's EventGroup. So the identity of a watch is a set that grows as
+ * variants are discovered, not the single pair it was born with.
+ */
+export const knownCodes = (watch) => uniq([
+  watch?.eventCode,
+  ...(watch?.codes || []),
+  ...(watch?.variants || []).map((v) => v?.eventCode),
+].map(upper));
+
+export const knownGroups = (watch) => uniq([
+  watch?.group,
+  ...(watch?.variants || []).map((v) => v?.group),
+].map(upper));
+
+const upper = (s) => (typeof s === 'string' && s ? s.toUpperCase() : null);
+const uniq = (xs) => [...new Set(xs.filter(Boolean))];
+
+/**
  * Does this child event belong to the film being watched?
  *
- * Group first, and only the group when the watch has one — that comparison is
- * exact and needs no normalising. The event code is a fallback for watches
- * created before a group was known, and it is genuinely weaker: matching it can
- * miss a sibling variant. Title is never matched on; it was the plan until the
- * group turned up, and keeping it would reintroduce every normalisation problem
- * the group avoids.
+ * Group first, and only the group when the watch knows one — that comparison is
+ * exact and needs no normalising. A group the child does not share is decisive:
+ * a sibling language that turned out to have its own group is added to the
+ * watch's set by `variantCandidate` below, so by the time it matches here it
+ * matches exactly, and anything still outside the set is a different film.
+ * Title is never matched on here; that stays a candidate signal, never proof.
  */
 export function matchesFilm(child, watch) {
-  if (watch.group && child.group) return child.group === watch.group;
-  if (watch.eventCode && child.eventCode === watch.eventCode) return true;
-  return Boolean(watch.eventCode && watch.codes?.includes(child.eventCode));
+  const groups = knownGroups(watch);
+  if (groups.length && child.group) return groups.includes(upper(child.group));
+  const codes = knownCodes(watch);
+  return Boolean(child.eventCode && codes.includes(upper(child.eventCode)));
+}
+
+/**
+ * The languages BookMyShow spells into a slug.
+ *
+ * Measured, not guessed: I'm Game's Telugu listing is `im-game-telugu` where the
+ * Malayalam original is `im-game`. Kept as a closed list because the whole value
+ * of the rule is that `im-game-telugu` is the same film while `im-game-2` is a
+ * sequel — an open "anything after a hyphen" rule would adopt both.
+ */
+export const SLUG_LANGUAGES = [
+  'hindi', 'telugu', 'tamil', 'malayalam', 'kannada', 'english', 'marathi',
+  'bengali', 'punjabi', 'gujarati', 'odia', 'assamese', 'bhojpuri', 'urdu',
+  'konkani', 'tulu', 'nepali', 'korean', 'japanese', 'spanish', 'french',
+];
+
+/**
+ * A film's slug with the language stripped off it — `im-game-telugu` → `im-game`.
+ *
+ * This is what makes one film's listings recognisable to each other. byvenue
+ * gives every language its own `EventUrl`, so slug equality alone would have
+ * called the Telugu listing a different film; comparing stems calls it what it
+ * is, and does so from whichever language the watch happens to have been
+ * created from, since both sides reduce to the same stem.
+ */
+export function filmStem(slug) {
+  const clean = String(slug || '').trim().toLowerCase();
+  if (!clean) return null;
+  const m = /^(.+)-([a-z]+)$/.exec(clean);
+  return m && SLUG_LANGUAGES.includes(m[2]) ? m[1] : clean;
+}
+
+/** The language a slug spells out, if it spells one. `im-game-telugu` → Telugu. */
+export function slugLanguage(slug) {
+  const m = /-([a-z]+)$/.exec(String(slug || '').trim().toLowerCase());
+  return m && SLUG_LANGUAGES.includes(m[1]) ? titleCase(m[1]) : '';
+}
+
+/**
+ * Is this the same film in another language?
+ *
+ * One rule, and it needs no confirming: two listings whose slugs reduce to the
+ * same stem are the same film, because the stem is the film's own address. What
+ * this deliberately does not do is match on the title — that was the plan
+ * before the slug convention was measured, and titles are shared by remakes and
+ * re-releases in a way addresses are not.
+ *
+ * In practice the group catches these first; this is the safety net for a watch
+ * whose group could not be read, which is exactly the watch most likely to miss
+ * a language.
+ */
+export function variantCandidate(child, watch) {
+  if (!child?.eventCode || matchesFilm(child, watch)) return null;
+  if (knownCodes(watch).includes(upper(child.eventCode))) return null;
+  const mine = filmStem(watch.slug);
+  return mine && mine === filmStem(child.slug) ? 'slug' : null;
+}
+
+/**
+ * Records a discovered language on a watch. Returns whether anything changed,
+ * so the caller only writes storage when there is something to write.
+ */
+export function addVariant(watch, variant) {
+  const code = upper(variant?.eventCode);
+  if (!code || knownCodes(watch).includes(code)) return false;
+  watch.variants = watch.variants || [];
+  watch.variants.push({
+    eventCode: code,
+    group: upper(variant.group) || null,
+    language: variant.language || '',
+    slug: variant.slug || watch.slug || null,
+    // How it was recognised, kept because a watch that starts alerting for the
+    // wrong film should say which rule let it in.
+    via: variant.via || null,
+    foundAt: Date.now(),
+  });
+  return true;
+}
+
+/**
+ * What is known about one of a watch's event codes — its language and the slug
+ * its page lives under. The primary code answers for the watch itself.
+ */
+export function variantFor(watch, code) {
+  const want = upper(code);
+  if (upper(watch?.eventCode) === want) {
+    return { eventCode: want, group: upper(watch.group), language: watch.language || '',
+             slug: watch.slug || null };
+  }
+  const v = (watch?.variants || []).find((x) => upper(x?.eventCode) === want);
+  return v ? { ...v, eventCode: want, slug: v.slug || watch?.slug || null }
+           : { eventCode: want, group: null, language: '', slug: watch?.slug || null };
+}
+
+/**
+ * The language a listing is in, as an alert should name it. The dimension rides
+ * along when it is not the ordinary one: "Telugu · IMAX 3D" is a different
+ * decision from "Telugu".
+ */
+export function languageLabel(child) {
+  const lang = String(child?.language || '').trim();
+  const dim = String(child?.dimension || '').trim();
+  if (dim && !/^2d$/i.test(dim)) return lang ? `${lang} · ${dim}` : dim;
+  return lang;
 }
 
 // ------------------------------------------------------------- the film page
@@ -404,7 +533,7 @@ export function bookingSignal(html) {
  * occasionally bind a watch to the wrong film, and the failure would look like
  * the film simply never going on sale.
  */
-export function parseFilmPage(html) {
+export function parseFilmPage(html, slug) {
   const text = String(html || '');
   const counts = new Map();
   for (const eg of text.match(/EG\d{6,}/g) || []) counts.set(eg, (counts.get(eg) || 0) + 1);
@@ -420,8 +549,123 @@ export function parseFilmPage(html) {
     releaseDate: iso ? dateCodeFromIso(iso[1]) : null,
     title,
     booking: bookingSignal(text),
+    // The film's other languages. The switcher data first, since it names them
+    // outright; the addresses on the page as a fallback for a layout that
+    // ships no such data.
+    listings: mergeListings(parseLanguages(text), linkedListings(text, slug)),
   };
 }
+
+/**
+ * Other listings of the same film, read out of the addresses on its own page.
+ *
+ * The slug stem is what makes this safe. An address of the form
+ * `/movies/<city>/im-game-telugu/buytickets/ET00511702/20260903` is another
+ * listing of *this* film by construction — the stem in the path is the film —
+ * so a code found this way needs no confirming. The recommendation rails on the
+ * same page carry unrelated stems and are excluded by the same rule, and a
+ * sequel at `im-game-2` is excluded because `2` is not a language.
+ *
+ * Best-effort by design: on some layouts BookMyShow renders the switcher
+ * client-side and this finds nothing, and then the group carries the watch as
+ * it always did. It is worth trying because it is the one source that names a
+ * language *and* its code from a page the check was fetching anyway.
+ */
+/**
+ * Two readings of the same page, preferring whichever knows more about a code.
+ * The switcher data names languages; the addresses name slugs. Neither has both.
+ */
+export function mergeListings(...lists) {
+  const out = new Map();
+  for (const l of lists.flat()) {
+    if (!l?.eventCode) continue;
+    const prev = out.get(l.eventCode) || {};
+    out.set(l.eventCode, {
+      eventCode: l.eventCode,
+      language: prev.language || l.language || '',
+      slug: prev.slug || l.slug || null,
+      dimension: prev.dimension || l.dimension || '',
+    });
+  }
+  return [...out.values()];
+}
+
+/**
+ * Every language of a film, out of the switcher data on its own page.
+ *
+ * This is the good source and it was found by measuring rather than guessing:
+ * the film page carries a `language` → `formats[]` → `eventCode` structure,
+ * naming each language and the code that books it. No slug rules, no link
+ * shapes, no title matching — the page says it outright.
+ *
+ * Read with regexes rather than by parsing state, because these pages ship no
+ * `__NEXT_DATA__` at all (measured: 248 KB, none) — the data is embedded some
+ * other way and the only reliable handle on it is the text.
+ */
+export function parseLanguages(html) {
+  const text = String(html || '');
+  const out = new Map();
+
+  // The film page ships its language switcher as data, not just as links:
+  //   {"language":"Hindi","formats":[{"dimension":"2D","eventCode":"ET00511704",
+  //     "analytics":{…},"refEventCode":"ET00511704","language":"Hindi"}]}
+  // One language can hold several formats, each its own code, so every code in
+  // the block belongs to that language.
+  for (const m of text.matchAll(
+    /"language"\s*:\s*"([A-Za-z][A-Za-z ()-]{1,23})"\s*,\s*"formats"\s*:\s*\[([^\]]{0,4000})\]/g)) {
+    const language = m[1].trim();
+    for (const f of m[2].matchAll(/"eventCode"\s*:\s*"(ET\d{6,})"/g)) {
+      const code = f[1].toUpperCase();
+      const dimension = /"dimension"\s*:\s*"([^"]{1,24})"/.exec(
+        m[2].slice(Math.max(0, f.index - 120), f.index))?.[1] || '';
+      if (!out.has(code)) out.set(code, { eventCode: code, language, dimension });
+    }
+  }
+
+  // The same pair also occurs the other way round, on the analytics record each
+  // format carries. Read second, so it fills gaps rather than overwriting.
+  for (const m of text.matchAll(
+    /"refEventCode"\s*:\s*"(ET\d{6,})"\s*,\s*"language"\s*:\s*"([A-Za-z][A-Za-z ()-]{1,23})"/g)) {
+    const code = m[1].toUpperCase();
+    if (!out.has(code)) out.set(code, { eventCode: code, language: m[2].trim(), dimension: '' });
+  }
+
+  return [...out.values()];
+}
+
+export function linkedListings(html, slug) {
+  const stem = filmStem(slug);
+  if (!stem || !/^[a-z0-9][a-z0-9-]*$/.test(stem)) return [];
+  const text = String(html || '');
+  // The city segment is optional: the rails at the foot of a film page link
+  // nationally — `/movies/im-game-telugu/ET00511702` — and those were the only
+  // sibling addresses on the page that was measured. Requiring a city, as this
+  // first did, found none of them.
+  const re = new RegExp(
+    `/movies/(?:[a-z0-9-]+/)?(${escapeRe(stem)}(?:-[a-z]+)?)/(?:buytickets/)?(ET\\d{6,})([^"'\\s<]*)`,
+    'gi');
+
+  const out = new Map();
+  for (const m of text.matchAll(re)) {
+    const [, found, rawCode, tail] = m;
+    // The stem regex allows one trailing word so `im-game-telugu` is reachable;
+    // this is where anything that is not a language is thrown out.
+    if (filmStem(found) !== stem) continue;
+    const code = rawCode.toUpperCase();
+    // Two places name the language: the slug itself, and the switcher's own
+    // query string. Either will do; both is better than neither.
+    const fromQuery = /[?&]language=([A-Za-z ]{2,20})/.exec(tail || '')?.[1];
+    const language = slugLanguage(found) ||
+      (fromQuery ? titleCase(fromQuery.trim().toLowerCase()) : '');
+    const prev = out.get(code);
+    if (!prev || (!prev.language && language)) {
+      out.set(code, { eventCode: code, language, slug: found });
+    }
+  }
+  return [...out.values()];
+}
+
+const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
  * The upcoming-movies listing. Every card's identifiers live in the analytics
@@ -442,10 +686,65 @@ export function parseUpcoming(html) {
         title: o.title || o.event_name || '',
         language: o.language || '',
         genre: o.genre || '',
+        // Whatever the card knows about its own address. Taken opportunistically
+        // — a film's languages each have their own slug (`im-game-telugu`), and
+        // that slug is both the link an alert needs and a second way to
+        // recognise the film. Never required: the analytics object may carry no
+        // address at all.
+        slug: pathSlug(o.slug || o.event_url || o.eventUrl || o.url || o.link),
       });
     });
   }
   return [...out.values()];
+}
+
+/**
+ * The film slug out of whatever shape an address arrives in: a bare slug, a
+ * path, or a full URL. `/movies/hyderabad/im-game/ET00473215` → `im-game`.
+ */
+export function pathSlug(value) {
+  const s = String(value || '').split('?')[0].replace(/\/+$/, '');
+  if (!s) return null;
+  const parts = s.split('/').filter(Boolean).filter((p) => !/^ET\d{6,}$/i.test(p));
+  const last = parts[parts.length - 1] || null;
+  return last && /^[a-z0-9][a-z0-9-]*$/i.test(last) ? last.toLowerCase() : null;
+}
+
+/**
+ * Whether one listing — one language, one event code — is actually selling.
+ *
+ * Measured 2026-09-02: a buytickets page is scoped to its event code and
+ * nothing else. The same film on the same day answered with 17 cinemas for
+ * Malayalam, 54 for Telugu and 2 for Hindi, so the page reflects the listing
+ * rather than the film. That is the per-language signal the film page could
+ * never give, and it is structural — cinemas and sessions, not wording that
+ * BookMyShow can reword.
+ *
+ * Two things it is not. It is not per date: the same code answered identically
+ * for release day and for a date four months out with nothing on, so the date
+ * in the address is decoration and this says "this listing sells tickets", not
+ * "on that day". And it is not two-valued — a page that cannot be recognised as
+ * this listing's returns `unknown`, which never fires an alert, because the
+ * failure it guards against is a reshaped page reading as "nothing on sale"
+ * forever while looking like it is working.
+ */
+export function listingSignal(html, eventCode) {
+  const text = String(html || '');
+  // Far too small to be a showtimes page — an error, an interstitial, a
+  // redirect body. Not evidence of anything.
+  if (text.length < 2000) return { signal: 'unknown', venues: 0, sessions: 0 };
+
+  const venues = new Set(
+    [...text.matchAll(/"[Vv]enue[Cc]ode"\s*:\s*"([A-Z0-9]{3,8})"/g)].map((m) => m[1]));
+  const sessions = (text.match(/"sessionId"/gi) || []).length;
+  if (venues.size || sessions) {
+    return { signal: 'open', venues: venues.size, sessions };
+  }
+
+  // Nothing rendered. That is "not on sale" only if this is really the page for
+  // the code asked about; otherwise it is a page this cannot read.
+  const mine = !eventCode || text.toUpperCase().includes(String(eventCode).toUpperCase());
+  return { signal: mine ? 'closed' : 'unknown', venues: 0, sessions: 0 };
 }
 
 // ---------------------------------------------------------------- scheduling

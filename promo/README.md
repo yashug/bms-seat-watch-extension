@@ -5,6 +5,7 @@ Everything for taking Seat Watch public. Three pieces:
 | | |
 |---|---|
 | [`launch-copy.md`](launch-copy.md) | Ready-to-post copy for X, LinkedIn, Hacker News, Reddit (six subs), Product Hunt, Instagram/Reels, WhatsApp, Discord — plus a hook bank, a day-by-day launch sequence and a list of things not to say. |
+| [`social-video.md`](social-video.md) | The rendered demo: which of the five cuts goes to X, Instagram Reels, Stories and the feed, with the post copy, alt text, cover frame and posting order for each. Start here if the video is already built. |
 | [`demo-script.md`](demo-script.md) | The demo video: shot list with timings and voiceover for a 60s master, an 18–22s vertical cut, and a 6–8s loop; plus recording setup and edit notes. |
 | [`youtube.md`](youtube.md) | Title, description, chapters, upload settings and pinned comment for the demo video. |
 | [`release-script.md`](release-script.md) | The 1.3 video: its own hook — *you found out too late* — with shot list, a vertical cut, and how to film an alert honestly. |

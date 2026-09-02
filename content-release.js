@@ -272,6 +272,10 @@ function decorateUpcoming() {
     const meta = index.get(eventCode) || {};
     const btn = makeButton({
       eventCode, slug, group: meta.group || null,
+      // The language this listing is in. A film out in three languages has a
+      // card and an event code for each, and the watch needs to know which one
+      // it was created from before it can tell you a *different* one opened.
+      language: meta.language || '',
       // No title rather than a bad one. The card's text is the whole card —
       // genre, like count, the name twice over — and it would be stored and
       // shown as the film's name. The worker reads the real title off the
@@ -303,6 +307,7 @@ function decorateFilm() {
 
   const btn = makeButton({
     eventCode, slug, group,
+    language: groupIndex().get(eventCode)?.language || '',
     title: document.title.split(/\s+[|–-]\s+/)[0].trim(),
     city: city(),
   });
@@ -327,6 +332,18 @@ function repaintAll() {
  * is what dropped the tick on reload, so the failure is now returned rather
  * than swallowed, and the caller retries.
  */
+/**
+ * Every identifier one watch answers to, including the languages it has adopted
+ * since it was created.
+ *
+ * A film out in three languages has three cards and three film pages, and one
+ * watch covers all of them. Registering only the code it was created from left
+ * the Telugu card showing an unwatched bell — and clicking it would have made a
+ * second watch for a film already being watched.
+ */
+const keysOf = (w) => [w.group, w.eventCode,
+  ...(w.variants || []).flatMap((v) => [v.group, v.eventCode])].filter(Boolean);
+
 async function loadWatched() {
   try {
     const res = await chrome.runtime.sendMessage({ type: 'listReleases' });
@@ -335,7 +352,7 @@ async function loadWatched() {
     // Under both identifiers, so a page that can only produce one of them still
     // recognises the watch.
     for (const w of res.releases) {
-      for (const k of [w.group, w.eventCode]) if (k) watched.set(k, w.id);
+      for (const k of keysOf(w)) watched.set(k, w.id);
     }
     return true;
   } catch {
@@ -405,7 +422,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local' || !changes.releases) return;
   watched.clear();
   for (const w of changes.releases.newValue || []) {
-    for (const k of [w.group, w.eventCode]) if (k) watched.set(k, w.id);
+    for (const k of keysOf(w)) watched.set(k, w.id);
   }
   repaintAll();
 });

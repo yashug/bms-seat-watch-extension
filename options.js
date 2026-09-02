@@ -1,6 +1,10 @@
 const $ = (id) => document.getElementById(id);
 const showsEl = $('shows');
 
+// The last reading of each seat map, so a show's editor can name the rows that
+// hall actually has instead of asking you to guess them.
+let seatState = {};
+
 function showRow(show = {}) {
   const wrap = document.createElement('div');
   wrap.className = 'card';
@@ -16,11 +20,27 @@ function showRow(show = {}) {
         <label>Seats together</label>
         <input type="number" class="minAdj" min="1" max="10" placeholder="use default">
       </div>
+      <div>
+        <label>Rows</label>
+        <input type="text" class="rows" spellcheck="false" placeholder="use default">
+        <div class="hint rowsSeen"></div>
+      </div>
     </div>
     <div class="err"></div>`;
   wrap.querySelector('.label').value = show.label || '';
   wrap.querySelector('.url').value = show.url || '';
   wrap.querySelector('.minAdj').value = show.minAdjacent ?? '';
+  wrap.querySelector('.rows').value = show.rows || '';
+  // The rows this hall actually has, from the last reading. Typing row names
+  // blind is guesswork — F might be the fifth row or the fifteenth, and some
+  // halls number rather than letter — so where a seat map has been read once,
+  // it says what is there.
+  const seen = (seatState?.[show.url]?.last?.map?.rows || [])
+    .map((r) => r.row).filter(Boolean);
+  if (seen.length) {
+    wrap.querySelector('.rowsSeen').textContent =
+      `This hall: ${seen.join(', ')}`;
+  }
   wrap.querySelector('.remove').onclick = () => wrap.remove();
   showsEl.appendChild(wrap);
   return wrap;
@@ -45,6 +65,7 @@ function readShows() {
       url,
       label: el.querySelector('.label').value.trim() || undefined,
       minAdjacent: minAdj === '' ? undefined : Number(minAdj),
+      rows: el.querySelector('.rows').value.trim() || undefined,
     });
   }
   return bad ? null : out;
@@ -342,7 +363,9 @@ async function load() {
   $('where').value = WHERE.find(([, v]) => v === s.defaults?.maxOffCentre)?.[0] ?? '';
   $('skipfront').value = s.defaults?.minFromScreen == null ? '' : String(s.defaults.minFromScreen);
   $('bestOnly').checked = s.defaults?.bestsellerOnly === true;
+  $('rows').value = s.defaults?.rows || '';
   showCadence(s.cadence);
+  seatState = s.state || {};
   showsEl.innerHTML = '';
   (s.shows?.length ? s.shows : [{}]).forEach(showRow);
 
@@ -423,6 +446,7 @@ $('save').onclick = async () => {
       maxOffCentre: offCentreFor($('where').value),
       minFromScreen: $('skipfront').value === '' ? null : Number($('skipfront').value),
       bestsellerOnly: $('bestOnly').checked,
+      rows: $('rows').value.trim() || null,
     },
     cadence,
     shows,

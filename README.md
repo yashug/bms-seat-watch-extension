@@ -324,11 +324,19 @@ Per show, or as defaults for all of them:
 | **Seats together** | how many free seats side by side, with no aisle between them |
 | **Where in the hall** | anywhere, the middle half, or dead centre |
 | **Rows to skip at the front** | the nearest fifth, third, or half |
+| **Rows** | the ones you'd actually sit in — `F-K`, `H, J`, or `F-K, M` |
 | **Bestseller seats only** | the ones BookMyShow marks as its best, at no extra cost |
 
 Position is the filter that decides whether an alert is worth acting on. Four free seats
 in the front corner and four dead centre are the same row length and the same price, and
 only one of them is worth leaving the house for.
+
+**Rows** is the one filter that is about your seat rather than the geometry. Ranges follow
+the hall's own row order rather than the alphabet, so `F-K` in a hall that skips I — most
+of them do — means the six rows that are actually there, not seven with a gap. Once a seat
+map has been read the settings page lists that hall's rows under the field, so there is
+nothing to guess at, and naming a row the hall doesn't have says so rather than quietly
+watching nothing.
 
 Both position filters come from the rendered layout rather than from seat numbers, which
 can't be trusted for this — numbering runs in different directions in different halls and

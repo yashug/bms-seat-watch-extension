@@ -171,6 +171,10 @@
 
   /* Sits directly on the box below it, so the two read as one control with a
      heading rather than as a stray dropdown. */
+  /* Same trap as .panel above: an author `display` outranks [hidden], so the
+     picker's target row showed as a stray dropdown whenever there was only one
+     film it could mean — which is the case it exists to stay out of. */
+  .venuetarget[hidden] { display: none; }
   .venuetarget {
     display: flex;
     align-items: center;
@@ -505,6 +509,15 @@
           wide hall counts as off-centre even when its seat numbers look central.</div>
       </div>
   
+      <div style="margin-top:16px">
+        <label for="rows">Rows</label>
+        <input type="text" id="rows" spellcheck="false" placeholder="Any row — e.g. F-K, M">
+        <div class="hint">Name the rows you'd actually sit in. A list, a range, or both:
+          <b>F-K</b>, <b>H, J</b>, <b>F-K, M</b>. Ranges follow the hall's own row order, so
+          a hall that skips I — most of them do — still means what you meant. Leave it empty
+          and every row counts.</div>
+      </div>
+
       <label class="check" style="margin-top:18px">
         <input type="checkbox" id="bestOnly">
         <span>Only the seats BookMyShow marks as its best</span>
@@ -637,6 +650,10 @@
          opened. Leave it empty and any theatre counts — but that check reads the film's page
          rather than the cinema's, so it can only say <i>somewhere</i>, and it leans on
          wording BookMyShow can change.</p>
+      <p class="hint">It also decides how a film out in several languages is told to you. The
+         cinema's listing names the language, so picking theatres gets you one alert per
+         language — <i>Telugu, at ALLU Cinemas</i>. The film's page names none, so leaving this
+         empty gets one alert saying booking opened, with a button per language.</p>
       <!-- One instrument, not three stacked things. The filter, the list and
            the rail below all act on the same set, so they share a frame — and
            the refresh gets a bar to sit in, which is what makes it read as a

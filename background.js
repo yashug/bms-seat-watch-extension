@@ -199,6 +199,7 @@ const DEFAULTS = {
   defaults: {
     minAdjacent: 2,
     maxOffCentre: null, minFromScreen: null, bestsellerOnly: false,
+    rows: null,     // "F-K, M" — empty means every row
   },
   cadence: CADENCE,
   shows: [],
@@ -494,7 +495,7 @@ const chatList = (tg) => String(tg?.chatId ?? '')
  * failure is collected and reported; the send only counts as failed if nothing
  * arrived anywhere.
  */
-async function sendTelegram(tg, html, { button } = {}) {
+async function sendTelegram(tg, html, { button, buttons } = {}) {
   const chats = chatList(tg);
   if (!tg?.botToken || !chats.length) throw new Error('Telegram not configured');
 
@@ -502,7 +503,7 @@ async function sendTelegram(tg, html, { button } = {}) {
   let sent = 0;
   for (const chatId of chats) {
     try {
-      await sendTelegramTo(tg.botToken, chatId, html, button);
+      await sendTelegramTo(tg.botToken, chatId, html, buttons?.length ? buttons : button);
       sent++;
     } catch (e) {
       failed.push(`${chatId}: ${String(e.message || e)}`);
@@ -520,8 +521,15 @@ async function sendTelegramTo(botToken, chatId, html, button) {
   // A tappable button rather than a link buried in the text. On a phone, in a
   // group, the difference between one tap and hunting for a link is the
   // difference between getting the seats and reading about them.
-  if (button?.url) {
-    payload.reply_markup = { inline_keyboard: [[{ text: button.text || 'Book now', url: button.url }]] };
+  //
+  // A row of them when a film has several listings: the Telugu showing and the
+  // Malayalam one are different pages, and a single button can only be one of
+  // them. Telegram stacks each on its own line, which is also how they read.
+  const row = (Array.isArray(button) ? button : [button]).filter((b) => b?.url);
+  if (row.length) {
+    payload.reply_markup = {
+      inline_keyboard: row.map((b) => [{ text: b.text || 'Book now', url: b.url }]),
+    };
   }
   const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
     method: 'POST',
@@ -695,11 +703,89 @@ const runKey = (r) => `${r.row}:${r.nums[0]}-${r.nums[r.nums.length - 1]}`;
  *   maxOffCentre 0-1; 0.5 keeps the middle half of the hall
  *   minFromScreen 0-1; 0.25 skips the front quarter of the rows
  *   bestsellerOnly  only blocks BookMyShow marks as its best seats
+ *   rowMatch     a predicate over row labels, from a spec like "F-K, M"
  */
+/**
+ * Turns "F-K, M" into a test over row labels.
+ *
+ * Ranges are resolved against the hall's own row order when both ends name rows
+ * it actually has. That matters more than it sounds: BookMyShow's halls skip I,
+ * some number their rows instead of lettering them, and some start at the back.
+ * Counting letters would quietly include a row that does not exist and exclude
+ * one that does; walking the hall's own list cannot. Letters are the fallback,
+ * for a spec typed before the hall has ever been read.
+ *
+ * A spec that yields no usable test is treated as no filter at all, and says so.
+ * The alternative — a filter that matches nothing — is a watch that runs
+ * forever and never fires, which looks exactly like a watch that is working.
+ */
+function rowMatcher(spec, order = []) {
+  const text = String(spec || '').trim();
+  if (!text) return { match: null, problems: [] };
+
+  const norm = (s) => String(s ?? '').trim().toUpperCase();
+  const idx = new Map();
+  for (const [i, label] of order.entries()) {
+    const n = norm(label);
+    if (n && !idx.has(n)) idx.set(n, i);
+  }
+
+  // "AA" sorts after "Z", which is how halls that run past 26 rows label them.
+  const ordinal = (label) => {
+    const n = norm(label);
+    if (/^[A-Z]+$/.test(n)) {
+      let v = 0;
+      for (const ch of n) v = v * 26 + (ch.charCodeAt(0) - 64);
+      return { kind: 'alpha', n: v };
+    }
+    if (/^\d+$/.test(n)) return { kind: 'num', n: Number(n) };
+    return null;
+  };
+
+  const tests = [];
+  const problems = [];
+  for (const term of text.split(/[,;]+/).map((t) => t.trim()).filter(Boolean)) {
+    const range = /^(.+?)\s*[-–—]\s*(.+)$/.exec(term);
+    if (!range) {
+      const n = norm(term);
+      tests.push((label) => norm(label) === n);
+      continue;
+    }
+    const a = norm(range[1]);
+    const b = norm(range[2]);
+    if (idx.has(a) && idx.has(b)) {
+      const lo = Math.min(idx.get(a), idx.get(b));
+      const hi = Math.max(idx.get(a), idx.get(b));
+      tests.push((label) => {
+        const i = idx.get(norm(label));
+        return i != null && i >= lo && i <= hi;
+      });
+      continue;
+    }
+    const oa = ordinal(a);
+    const ob = ordinal(b);
+    if (!oa || !ob || oa.kind !== ob.kind) { problems.push(term); continue; }
+    const lo = Math.min(oa.n, ob.n);
+    const hi = Math.max(oa.n, ob.n);
+    tests.push((label) => {
+      const o = ordinal(label);
+      return Boolean(o) && o.kind === oa.kind && o.n >= lo && o.n <= hi;
+    });
+  }
+
+  if (!tests.length) return { match: null, problems };
+  return { match: (label) => tests.some((t) => t(label)), problems };
+}
+
 function wanted(runs, want) {
   return runs.filter((r) => {
     if (r.size < (want.minAdjacent ?? 2)) return false;
     if (want.bestsellerOnly && !r.bestseller) return false;
+    // A named row is the one filter that is about *your* seat rather than the
+    // geometry — "we always sit in H or J". A run with no label read cannot be
+    // excluded by it, same as the two fractions below: missing data is not
+    // evidence against.
+    if (want.rowMatch && r.row != null && r.row !== '' && !want.rowMatch(r.row)) return false;
     // Older readings predate the geometry, so a missing value can't exclude.
     if (want.maxOffCentre != null && r.offCentre != null &&
         r.offCentre > want.maxOffCentre) return false;
@@ -707,6 +793,35 @@ function wanted(runs, want) {
         r.fromScreen < want.minFromScreen) return false;
     return true;
   });
+}
+
+/**
+ * What to say about a row filter that did not do what was typed.
+ *
+ * Three things go wrong and only the last is harmless: a term that could not be
+ * read at all, a spec where nothing was readable (so no filter ran), and a row
+ * named that this hall does not have — which is not an error, but is the
+ * difference between "no seats yet" and "you are watching a row that isn't
+ * there".
+ */
+function rowWarning(spec, parsed, order) {
+  if (!spec) return undefined;
+  if (!parsed.match) {
+    return `Couldn’t read “${spec}” as rows, so every row is being watched.`;
+  }
+  if (parsed.problems.length) {
+    return `Ignored ${parsed.problems.map((p) => `“${p}”`).join(', ')} — ` +
+           'a range needs two row names of the same kind, like F-K.';
+  }
+  if (!order.length) return undefined;
+  const have = new Set(order.map((r) => String(r).trim().toUpperCase()));
+  const missing = [...new Set(String(spec).split(/[,;]+/)
+    .flatMap((t) => t.split(/[-–—]/))
+    .map((t) => t.trim().toUpperCase())
+    .filter((t) => t && !have.has(t)))];
+  return missing.length
+    ? `This hall has no row ${missing.join(', ')} — its rows are ${order.join(', ')}.`
+    : undefined;
 }
 
 async function checkShow(show, cfg) {
@@ -742,11 +857,18 @@ async function checkShow(show, cfg) {
   // Per show first, then the defaults — a blank field on a show means "use the
   // default", so ?? has to fall through rather than treat 0 as unset.
   const pick = (key) => show[key] ?? cfg.defaults[key] ?? null;
+  // The hall's own row labels, in the order it draws them. Ranges are resolved
+  // against this rather than against the alphabet, so a hall that skips I or
+  // numbers its rows still means what you meant.
+  const rowOrder = (data.grid?.rows || []).map((r) => r.row).filter(Boolean);
+  const rows = pick('rows');
+  const rowSpec = rowMatcher(rows, rowOrder);
   const want = {
     minAdjacent: pick('minAdjacent') ?? 2,
     maxOffCentre: pick('maxOffCentre'),
     minFromScreen: pick('minFromScreen'),
     bestsellerOnly: pick('bestsellerOnly') === true,
+    rowMatch: rowSpec.match,
   };
   const minAdj = want.minAdjacent;
   const qualifying = wanted(data.runs, want);
@@ -799,6 +921,11 @@ async function checkShow(show, cfg) {
     title: data.title, subtitle: data.subtitle,
     available: data.available, total: data.total,
     blocks: qualifying.length, minsUntil, alerted: fresh.length,
+    // What the row filter did, if there was one. A spec that named a row this
+    // hall does not have is the failure worth surfacing: it silently narrows
+    // the watch, and nothing else on screen would ever say so.
+    rows: rows || undefined,
+    rowWarn: rowWarning(rows, rowSpec, rowOrder),
     hits: qualifying.slice(0, 8).map(r => ({
       row: r.row, price: r.price, size: r.size,
       from: r.nums[0], to: r.nums[r.nums.length - 1], bestseller: r.bestseller,
@@ -899,6 +1026,12 @@ async function addRelease(entry) {
 
   const id = `${city.code}:${entry.group || entry.eventCode}`;
   if (cfg.releases.some((w) => w.id === id)) return { already: true, id };
+  // A second language of a film already watched is not a second film. Once a
+  // watch has adopted the Telugu listing, the bell on that listing belongs to
+  // it — clicking it must not create a rival watch that alerts about the same
+  // showing.
+  const covering = watchCovering(cfg.releases, entry);
+  if (covering) return { already: true, id: covering.id };
 
   const watch = {
     id,
@@ -906,7 +1039,13 @@ async function addRelease(entry) {
     group: entry.group || null,
     slug: entry.slug || null,
     title: entry.title || '',
+    language: entry.language || '',
     releaseDate: entry.releaseDate || null,
+    // The other languages the same film is listed under, learned while
+    // checking. A film is added from one language's page — the original's,
+    // usually — and the dub that goes on sale first is frequently a different
+    // event code under a different group entirely.
+    variants: [],
     citySlug: city.slug,
     regionCode: city.code,
     // A bell clicked on BookMyShow carries no theatres — the page has no idea
@@ -918,13 +1057,17 @@ async function addRelease(entry) {
     addedAt: Date.now(),
   };
 
-  if (watch.slug && watch.eventCode && (!watch.group || !watch.releaseDate)) {
+  if (watch.slug && watch.eventCode) {
     try {
       const page = R.parseFilmPage(
-        await R.fetchText(R.filmUrl(city.slug, watch.slug, watch.eventCode)));
+        await R.fetchText(R.filmUrl(city.slug, watch.slug, watch.eventCode)), watch.slug);
       watch.group = watch.group || page.group;
       watch.releaseDate = watch.releaseDate || page.releaseDate;
       watch.title = watch.title || page.title || '';
+      // The page links to the film's other languages often enough to be worth
+      // reading here: a watch that knows them on the day it is created does not
+      // have to wait for one to turn up at a cinema before it can announce it.
+      adoptListings(watch, page.listings);
     } catch (e) {
       watch.lookupError = String(e.message || e).slice(0, 120);
     }
@@ -960,13 +1103,28 @@ async function addRelease(entry) {
 function notifyRelease(watch, opened, cfg) {
   // Grouped by day, because a premiere and release day are two different things
   // to decide about and a flat list of cinemas would not say which opened.
-  const where = opened.venues?.length ? describeOpened(opened.venues) : 'Booking is open';
+  const langs = knownLanguages(watch);
+  const where = opened.venues?.length ? describeOpened(opened.venues)
+    // A listing check knows how many cinemas took it, which is the difference
+    // between a wide release and two screens across town — worth deciding on.
+    : opened.cinemas ? `Now selling at ${opened.cinemas} cinema${opened.cinemas === 1 ? '' : 's'}`
+    // Neither: the film page said the film went on sale without saying for
+    // which listing. Naming the languages it has is the difference between an
+    // alert you can act on and one that sends you to find the Telugu showing
+    // yourself.
+    : langs.length > 1 ? `Booking is open · listed in ${langs.join(', ')}`
+    : 'Booking is open';
   const premiere = opened.venues?.some((v) => v.premiere);
+  // The language belongs in the heading, not buried in the body. A film out in
+  // three languages opens three times, and "Booking open — I'm Game" sent
+  // twelve hours apart twice is indistinguishable noise; "(Telugu)" is the
+  // whole content of the second alert.
+  const named = `${watch.title || watch.eventCode}${opened.language ? ` (${opened.language})` : ''}`;
   const heading = premiere
-    ? `Premiere booking open — ${watch.title || watch.eventCode}`
-    : `Booking open — ${watch.title || watch.eventCode}`;
+    ? `Premiere booking open — ${named}`
+    : `Booking open — ${named}`;
 
-  chrome.notifications.create(RELEASE_NOTIF + watch.id, {
+  chrome.notifications.create(RELEASE_NOTIF + notifKey(watch, opened), {
     type: 'basic',
     iconUrl: 'icon128.png',
     title: heading,
@@ -977,13 +1135,49 @@ function notifyRelease(watch, opened, cfg) {
   }, () => void chrome.runtime.lastError);
 
   const link = releaseLink(watch, opened);
-  const plain = `${heading}\n${where}\n${link}`;
+  // Where a language of its own could not be established, every listing the
+  // watch knows of gets a button. That is the any-theatre case: the film's page
+  // says booking opened but not for which listing, so the alert offers them all
+  // rather than silently picking the one the watch was created from.
+  const buttons = opened.language ? [{ text: 'Book now', url: link }] : listingButtons(watch);
+  const plain = [heading, where, ...buttons.map((b) => `${b.text}: ${b.url}`)].join('\n');
   if (cfg.telegram?.botToken && cfg.telegram?.chatId) {
-    sendTelegram(cfg.telegram, `<b>${esc(heading)}</b>\n${esc(where)}`,
-      { button: { text: 'Book now', url: link } })
+    sendTelegram(cfg.telegram, `<b>${esc(heading)}</b>\n${esc(where)}`, { buttons })
       .catch(() => { /* the desktop notification already fired */ });
   }
   if (cfg.webhook) sendWebhook(cfg.webhook, plain, heading).catch(() => { /* ditto */ });
+}
+
+/**
+ * A button per listing, for an alert that could not say which one opened.
+ *
+ * Each goes to that listing's own address — `im-game-telugu/ET00511702` rather
+ * than the watch's slug with someone else's code. Measured, BookMyShow serves
+ * both: the slug is decoration and the code decides what you get. The right one
+ * is still used, because a link a person reads should say what it opens.
+ * Capped, because Telegram stacks them and a film in eight languages would be
+ * a wall.
+ */
+const MAX_BUTTONS = 4;
+
+/**
+ * How many listings one any-theatre check will ask about. Each is a request
+ * every cadence, so a film dubbed into a dozen languages must not quietly
+ * become a dozen requests every ten minutes.
+ */
+const MAX_LISTINGS = 6;
+
+function listingButtons(watch) {
+  const codes = R.knownCodes(watch).slice(0, MAX_BUTTONS);
+  const buttons = codes.map((code) => {
+    const v = R.variantFor(watch, code);
+    return {
+      text: v.language ? `Book ${v.language}` : 'Book now',
+      url: releaseLink(watch, { eventCode: code, slug: v.slug }),
+    };
+  });
+  // One listing, or none identified: the ordinary single button.
+  return buttons.length > 1 ? buttons : [{ text: 'Book now', url: releaseLink(watch) }];
 }
 
 /**
@@ -1015,15 +1209,42 @@ function describeOpened(venues) {
 function releaseLink(watch, opened) {
   // The earliest day that opened, not release day: an alert about a premiere
   // that lands you on Friday's listing has sent you to the wrong page.
-  const day = opened?.venues?.map((v) => v.date).filter(Boolean).sort()[0];
+  const day = openedDay(opened);
   const date = day || watch.releaseDate || R.toDateCode(new Date());
-  return watch.slug && watch.eventCode
-    ? R.buyTicketsUrl(watch.citySlug, watch.slug, watch.eventCode, date)
+  // And the code that opened, not the one the watch was created from. Sending a
+  // Telugu alert to the Malayalam listing is the same class of mistake as
+  // sending a premiere alert to Friday — the page opens, it just isn't the
+  // showing being announced.
+  const code = opened?.eventCode || watch.eventCode;
+  const slug = opened?.slug || R.variantFor(watch, code).slug || watch.slug;
+  return slug && code
+    ? R.buyTicketsUrl(watch.citySlug, slug, code, date)
     : R.upcomingUrl(watch.citySlug);
 }
 
+/** The earliest day an alert covers. */
+function openedDay(opened) {
+  return opened?.venues?.map((v) => v.date).filter(Boolean).sort()[0] || null;
+}
+
+/**
+ * What makes two alerts for one film distinct.
+ *
+ * Notifications replace each other by id, and a watch that fires once per
+ * language would otherwise overwrite its own Malayalam alert with the Telugu
+ * one — the first would vanish before it was read. The code and day ride along
+ * so a click can reopen the exact listing that fired without going back to
+ * storage for it.
+ */
+function notifKey(watch, opened) {
+  return `${watch.id}#${opened?.eventCode || ''}|${openedDay(opened) || ''}`;
+}
+
 async function openRelease(notifId) {
-  const id = String(notifId).slice(RELEASE_NOTIF.length);
+  const raw = String(notifId).slice(RELEASE_NOTIF.length);
+  const hash = raw.indexOf('#');
+  const id = hash === -1 ? raw : raw.slice(0, hash);
+  const [code, day] = hash === -1 ? [] : raw.slice(hash + 1).split('|');
   chrome.notifications.clear(notifId);
   const cfg = await getCfg();
   const watch = cfg.releases.find((w) => w.id === id);
@@ -1031,13 +1252,18 @@ async function openRelease(notifId) {
     chrome.tabs.create({ url: R.upcomingUrl(cfg.city?.slug || 'hyderabad'), active: true });
     return;
   }
-  // Which day to open. The notification carries only the watch id, so the day
-  // is recovered from what has been seen: the earliest date recorded is the
-  // premiere if there was one, and release day otherwise. Opening Friday's
-  // listing for an alert about Thursday's premiere is the wrong page.
-  const days = Object.keys(cfg.releaseState[id]?.seen || {})
-    .map((k) => k.split('|')[2]).filter(Boolean).sort();
-  const opened = days.length ? { venues: [{ date: days[0] }] } : undefined;
+  // The alert says which language and which day it was about, so the click
+  // reopens exactly that. Older notifications carry neither: for those the day
+  // is recovered from what has been seen — the earliest date recorded is the
+  // premiere if there was one, and release day otherwise.
+  let opened;
+  if (code || day) {
+    opened = { eventCode: code || null, venues: day ? [{ date: day }] : [] };
+  } else {
+    const days = Object.keys(cfg.releaseState[id]?.seen || {})
+      .map((k) => k.split('|')[2]).filter(Boolean).sort();
+    opened = days.length ? { venues: [{ date: days[0] }] } : undefined;
+  }
   chrome.tabs.create({ url: releaseLink(watch, opened), active: true });
 }
 
@@ -1079,14 +1305,15 @@ async function backfillWatch(watch, st, cfg) {
   st.lookupTries = (st.lookupTries || 0) + 1;
   try {
     const page = R.parseFilmPage(
-      await R.fetchText(R.filmUrl(watch.citySlug, watch.slug, watch.eventCode)));
+      await R.fetchText(R.filmUrl(watch.citySlug, watch.slug, watch.eventCode)), watch.slug);
     const before = `${watch.group}|${watch.releaseDate}|${watch.title}`;
+    const learned = adoptListings(watch, page.listings);
     // Mutated in place: this is the same object the caller is checking, so the
     // group learned here applies to this check rather than only the next one.
     if (!watch.group && page.group) watch.group = page.group;
     if (!watch.releaseDate && page.releaseDate) watch.releaseDate = page.releaseDate;
     if (!watch.title && page.title) watch.title = R.cleanTitle(page.title);
-    if (`${watch.group}|${watch.releaseDate}|${watch.title}` === before) return false;
+    if (!learned && `${watch.group}|${watch.releaseDate}|${watch.title}` === before) return false;
 
     st.lookupTries = 0;
     delete st.lookupError;
@@ -1112,13 +1339,21 @@ async function checkRelease(watch, cfg) {
       for (const venueCode of watch.venues) {
         for (const date of dates) {
           const body = await R.fetchJson(R.byVenueApi(venueCode, date, watch.regionCode));
-          const mine = R.parseByVenue(body, venueCode).filter((c) => R.matchesFilm(c, watch));
+          const rows = R.parseByVenue(body, venueCode);
+          // Before matching, learn. A dub listed under its own group is not a
+          // match yet and never becomes one on its own — this is the step that
+          // turns it into part of the watch, and it has to run against the same
+          // response the match reads or the language is missed for one whole
+          // cycle at the venue that had it first.
+          await learnVariants(rows, watch, cfg);
+          const mine = rows.filter((c) => R.matchesFilm(c, watch));
           for (const child of mine) {
             const key = R.seenKey(venueCode, child.eventCode, date);
             if (st.seen[key]) continue;
             st.seen[key] = now;
             opened.push({ code: venueCode, name: names.get(venueCode) || venueCode,
-                          shows: child.shows.length, language: child.language,
+                          shows: child.shows.length, language: R.languageLabel(child),
+                          eventCode: child.eventCode, slug: child.slug || watch.slug,
                           date, premiere: R.isPremiere(date, watch),
                           when: R.dateLabel(date, watch) });
           }
@@ -1128,6 +1363,7 @@ async function checkRelease(watch, cfg) {
       st.last = { at: now, mode: 'venues', checked: watch.venues.length,
                   dates: dates.length,
                   open: Object.keys(st.seen).length, fired: opened.length,
+                  languages: knownLanguages(watch),
                   // Worth surfacing on its own: a premiere opening is a
                   // different decision from release day opening.
                   premiere: opened.some((o) => o.premiere) || undefined };
@@ -1135,7 +1371,10 @@ async function checkRelease(watch, cfg) {
         st.last.warn = 'Couldn’t read this film’s group code, so it is matched on ' +
                        'one event code only — a different language or format may be missed.';
       }
-      if (opened.length) notifyRelease(watch, { venues: opened }, cfg);
+      // One alert per language, not one per watch. They are separate decisions
+      // — the Telugu show at your cinema and the Malayalam one are different
+      // bookings — and a single merged alert can only carry one link.
+      for (const group of byLanguage(opened)) notifyRelease(watch, group, cfg);
     } else if (!watch.slug || !watch.eventCode) {
       // The any-theatre check reads the film's own page, and that address needs
       // both halves. Without them there is no check to make — say so plainly
@@ -1144,17 +1383,73 @@ async function checkRelease(watch, cfg) {
                   warn: 'This watch has no film page to read. Pick theatres for it instead.' };
       st.signal = 'unknown';
     } else {
-      const html = await R.fetchText(R.filmUrl(watch.citySlug, watch.slug, watch.eventCode));
-      const signal = R.bookingSignal(html);
-      st.last = { at: now, mode: 'any', signal };
-      // Only a transition fires. Re-alerting every ten minutes for a film that
-      // has been on sale since yesterday would train you to ignore the alert.
-      if (signal === 'open' && st.signal !== 'open') notifyRelease(watch, {}, cfg);
-      if (signal === 'unknown') {
-        st.last.warn = 'BookMyShow page no longer says either "Book tickets" or ' +
-                       '"Releasing on" — this watch cannot tell if booking opened.';
+      // With no theatres named there is no byvenue feed to spot a dub in, so
+      // the film's own page supplies the languages — it carries a switcher
+      // naming each one and the code that books it — and the city's upcoming
+      // list fills in for a layout that does not.
+      await discoverFromUpcoming(watch, st, cfg);
+
+      const page = R.parseFilmPage(
+        await R.fetchText(R.filmUrl(watch.citySlug, watch.slug, watch.eventCode)), watch.slug);
+      if (adoptListings(watch, page.listings)) await setCfg({ releases: cfg.releases });
+
+      const codes = R.knownCodes(watch).slice(0, MAX_LISTINGS);
+      // One listing, or none identified: the film page is the only thing to
+      // read, and it speaks for the film rather than for a language.
+      if (codes.length < 2) {
+        const signal = page.booking;
+        st.last = { at: now, mode: 'any', signal, languages: knownLanguages(watch) };
+        if (signal === 'open' && st.signal !== 'open') notifyRelease(watch, {}, cfg);
+        if (signal === 'unknown') {
+          st.last.warn = 'BookMyShow page no longer says either "Book tickets" or ' +
+                         '"Releasing on" — this watch cannot tell if booking opened.';
+        }
+        st.signal = signal;
+      } else {
+        // Several languages: ask each listing's own buytickets page, which was
+        // measured answering per event code — 17 cinemas for Malayalam, 54 for
+        // Telugu, 2 for Hindi, the same film on the same day. That is the
+        // per-language signal, and it costs one request per language.
+        st.signals = st.signals || {};
+        const fired = [];
+        let read = 0;
+        let lastError = null;
+        for (const code of codes) {
+          const v = R.variantFor(watch, code);
+          let now_;
+          try {
+            now_ = R.listingSignal(await R.fetchText(R.buyTicketsUrl(
+              watch.citySlug, v.slug || watch.slug, code,
+              watch.releaseDate || R.toDateCode(new Date()))), code);
+          } catch (e) { lastError = e; continue; }
+          if (now_.signal !== 'unknown') read++;
+          const before = st.signals[code];
+          // Only a transition fires, and only into a state this is sure of.
+          if (now_.signal === 'open' && before !== 'open') {
+            fired.push({ language: v.language || '', eventCode: code, slug: v.slug || watch.slug,
+                         cinemas: now_.venues });
+          }
+          st.signals[code] = now_.signal;
+          await sleep(700);
+        }
+
+        const open = codes.filter((c) => st.signals[c] === 'open');
+        st.last = { at: now, mode: 'any', signal: open.length ? 'open' : read ? 'closed' : 'unknown',
+                    languages: knownLanguages(watch), checked: read, listings: codes.length,
+                    fired: fired.length };
+        if (!read) {
+          // Every listing unreadable. Rather than sit silent, fall back to the
+          // film page — it cannot name a language, but it can still say the
+          // film went on sale.
+          st.last.signal = page.booking;
+          st.last.warn = 'Couldn’t read any listing page, so this watch is back to ' +
+                         'the film’s own page and cannot tell the languages apart.';
+          if (page.booking === 'open' && st.signal !== 'open') notifyRelease(watch, {}, cfg);
+          if (lastError) st.last.error = String(lastError.message || lastError).slice(0, 120);
+        }
+        st.signal = st.last.signal;
+        for (const f of fired) notifyRelease(watch, f, cfg);
       }
-      st.signal = signal;
     }
     st.fails = 0;
   } catch (e) {
@@ -1173,6 +1468,136 @@ async function checkRelease(watch, cfg) {
   cfg.releaseState[watch.id] = st;
   await setCfg({ releaseState: cfg.releaseState });
   return st;
+}
+
+/** The languages a watch currently knows it covers, for the settings row. */
+function knownLanguages(watch) {
+  const all = [watch.language, ...(watch.variants || []).map((v) => v.language)]
+    .map((x) => String(x || '').trim()).filter(Boolean);
+  return [...new Set(all)];
+}
+
+/**
+ * Splits what opened into one alert per language.
+ *
+ * Each group carries the event code of its earliest day, because that is where
+ * its link has to point: the premiere if there was one, release day otherwise.
+ */
+function byLanguage(opened) {
+  const out = new Map();
+  for (const o of opened) {
+    const key = o.language || o.eventCode || '';
+    if (!out.has(key)) out.set(key, { language: o.language || '', venues: [] });
+    out.get(key).venues.push(o);
+  }
+  for (const g of out.values()) {
+    const first = [...g.venues].sort((a, b) =>
+      String(a.date || '').localeCompare(String(b.date || '')))[0];
+    g.eventCode = first?.eventCode || null;
+    g.slug = first?.slug || null;
+  }
+  return [...out.values()];
+}
+
+/**
+ * Teaches a watch the other languages of its film, from a byvenue response it
+ * was already going to fetch.
+ *
+ * Two rules, both exact, neither costing a request. A listing under a group the
+ * watch already knows is the same film by definition — that is the ordinary
+ * case, since BookMyShow files every language of I'm Game under EG00470725. A
+ * listing whose slug reduces to the same stem is the same film by address,
+ * which is the net for a watch whose group could not be read.
+ *
+ * Recording them is not what makes them ring — the group already did that. It
+ * is what lets an alert say *Telugu* and link to `im-game-telugu`, which the
+ * codes alone could not.
+ */
+async function learnVariants(rows, watch, cfg) {
+  let changed = false;
+  for (const child of rows) {
+    if (!R.matchesFilm(child, watch) && !R.variantCandidate(child, watch)) continue;
+    if (R.addVariant(watch, child)) changed = true;
+  }
+  if (changed) await setCfg({ releases: cfg.releases });
+  return changed;
+}
+
+/**
+ * Records the listings a film page linked to.
+ *
+ * No confirming step: the slug stem in each address is the film, so these are
+ * the same film by construction — and unlike a byvenue row, a linked address
+ * arrives with the language already spelled out in it.
+ */
+function adoptListings(watch, listings) {
+  let changed = false;
+  for (const l of listings || []) {
+    // The page names the language of the listing you are already on, too. A
+    // watch made before languages were tracked has none, and one alert saying
+    // "(Telugu)" beside another saying nothing reads as a bug.
+    if (String(l.eventCode) === String(watch.eventCode).toUpperCase()) {
+      if (!watch.language && l.language) { watch.language = l.language; changed = true; }
+      continue;
+    }
+    if (R.addVariant(watch, { ...l, via: 'link' })) changed = true;
+  }
+  return changed;
+}
+
+/**
+ * The same discovery for a watch that names no theatres.
+ *
+ * It has no byvenue response to read, so the city's upcoming list stands in:
+ * every language of an unreleased film has its own card there, carrying the
+ * event code, the group and the language. Cards are matched on title, which is
+ * the only handle that page offers, and confirmed the same way a title match
+ * from byvenue is.
+ *
+ * Run at most a few times a day and cached per city, because it answers a
+ * question that changes when BookMyShow adds a listing — not every ten minutes.
+ */
+const VARIANT_SCAN_MS = 6 * 3600 * 1000;
+const upcomingCache = new Map();
+const UPCOMING_TTL = 30 * 60000;
+
+async function upcomingCards(citySlug) {
+  const hit = upcomingCache.get(citySlug);
+  if (hit && Date.now() - hit.at < UPCOMING_TTL) return hit.cards;
+  const cards = R.parseUpcoming(await R.fetchText(R.upcomingUrl(citySlug)));
+  upcomingCache.set(citySlug, { at: Date.now(), cards });
+  return cards;
+}
+
+async function discoverFromUpcoming(watch, st, cfg) {
+  if (!watch.title || !watch.citySlug) return false;
+  if (Date.now() - (st.variantsAt || 0) < VARIANT_SCAN_MS) return false;
+
+  let cards;
+  // Stamped only on an answer. A listing that could not be fetched has taught
+  // the watch nothing, and sleeping six hours on it would hide a language for
+  // the rest of the day over one bad request.
+  try { cards = await upcomingCards(watch.citySlug); }
+  catch { return false; }
+  st.variantsAt = Date.now();
+
+  return learnVariants(cards, watch, cfg);
+}
+
+/**
+ * The watch that already covers a listing, if any.
+ *
+ * Matched against everything a watch has learned, not just the pair it was
+ * created from: a film's other languages are adopted as they are discovered,
+ * and from that moment their cards and pages belong to the same watch.
+ */
+function watchCovering(releases, film) {
+  const group = String(film?.group || '').toUpperCase();
+  const code = String(film?.eventCode || '').toUpperCase();
+  if (!group && !code) return null;
+  return (releases || []).find((w) =>
+    (group && R.knownGroups(w).includes(group)) ||
+    (code && R.knownCodes(w).includes(code))) || null;
 }
 
 /** The picker's choices for one city, or null when it named none. */
@@ -1290,12 +1715,18 @@ chrome.runtime.onInstalled.addListener(({ reason, previousVersion }) => {
   // restart, both of which also fire this listener.
   if (reason === 'install') {
     chrome.tabs.create({ url: chrome.runtime.getURL('welcome.html') });
-  } else if (reason === 'update' && olderThan(previousVersion, '1.3.0')) {
+  } else if (reason === 'update' && olderThan(previousVersion, '1.4.0')) {
     // Not a tab. Opening one on every update is the kind of thing that gets an
     // extension uninstalled, and this is a feature worth mentioning once rather
     // than insisting on. The popup shows a line until it is dismissed — and the
     // popup is somewhere the user goes anyway.
-    chrome.storage.local.set({ whatsNew: '1.3' });
+    //
+    // Which line depends on how far back they were. Somebody coming from 1.2
+    // has never seen release watching at all and should be told about that, not
+    // about a refinement to it they have no context for.
+    chrome.storage.local.set({
+      whatsNew: olderThan(previousVersion, '1.3.0') ? '1.3' : '1.4',
+    });
   }
 });
 chrome.runtime.onStartup.addListener(() => {
@@ -1340,8 +1771,7 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
     // one of several for the film, and all of them are the same watch.
     else if (msg.type === 'releaseWatched') {
       const cfg = await getCfg();
-      const w = cfg.releases.find((x) =>
-        (msg.group && x.group === msg.group) || (msg.eventCode && x.eventCode === msg.eventCode));
+      const w = watchCovering(cfg.releases, msg);
       respond({ ok: true, watched: Boolean(w), id: w?.id || null });
     }
     else if (msg.type === 'venues') {

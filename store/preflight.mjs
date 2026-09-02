@@ -44,15 +44,22 @@ for (const f of imports) t(`worker import present: ${f}`, names.includes(f));
 console.log('\nnothing that should not ship');
 for (const stray of ['package.json', 'verify.mjs', 'README.md'])
   t(`excluded: ${stray}`, !names.includes(stray));
-for (const dir of ['probes/', 'promo/', 'store/', 'docs/', 'icons/'])
+// video/ is the one that would actually bounce the upload rather than just
+// bloat it: it carries a node_modules with a headless Chrome inside.
+for (const dir of ['probes/', 'promo/', 'store/', 'docs/', 'icons/', 'video/'])
   t(`excluded: ${dir}`, !names.some((n) => n.startsWith(dir)));
 t('no source maps or dotfiles', !names.some((n) => n.endsWith('.map') || n.split('/').pop().startsWith('.')));
 
 console.log('\nagreement with the listing');
 const listing = readFileSync('store/listing.md', 'utf8');
 t('listing names this exact package', listing.includes(`seat-watch-${mf.version}.zip`));
-t('version is not the one already published',
-  mf.version !== '1.2.0', 'the store rejects a repeat version');
+// Every version that has been through the store. The check is a list rather
+// than the latest one, because the mistake it catches is re-uploading any
+// build that already exists — and a resubmission of 1.3.0 bounces exactly as
+// a resubmission of 1.2.0 does.
+const PUBLISHED = ['1.2.0', '1.3.0'];
+t('version is not one already published',
+  !PUBLISHED.includes(mf.version), 'the store rejects a repeat version');
 
 console.log('\nthe shipped copies are the current ones');
 t('privacy policy covers release watches',

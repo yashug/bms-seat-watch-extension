@@ -1810,16 +1810,32 @@ console.log('\ntelegram destinations');
   t('the seat alert points at the seat map',
     /button: \{ text: 'Open seats', url: show\.url \}/.test(bg));
   t('the release alert points at the booking page',
-    /button: \{ text: 'Book now', url: link \}/.test(bg));
+    /\{ text: 'Book now', url: link \}/.test(bg));
+  // An any-theatre alert cannot say which language opened — the film page never
+  // distinguished them — so instead of quietly linking to the one the watch was
+  // created from, it offers each listing its own button.
+  t('and offers every listing when it cannot name one',
+    /const buttons = opened\.language \? \[\{ text: 'Book now', url: link \}\] : listingButtons\(watch\)/
+      .test(bg) && /function listingButtons/.test(bg));
+  t('each button goes to that listing’s own address',
+    /url: releaseLink\(watch, \{ eventCode: code, slug: v\.slug \}\)/.test(bg));
+  t('and telegram stacks them one per row',
+    /inline_keyboard: row\.map\(\(b\) => \[\{ text: b\.text \|\| 'Book now', url: b\.url \}\]\)/.test(bg));
   // An alert about Thursday's premiere that opens Friday's listing is the wrong
   // page, so the link follows the day that actually opened.
   t('and at the day that actually opened',
-    /const day = opened\?\.venues\?\.map\(\(v\) => v\.date\)/.test(bg));
+    /function openedDay\(opened\)/.test(bg) &&
+    /opened\?\.venues\?\.map\(\(v\) => v\.date\)/.test(bg));
+  // The film is one thing; the language that went on sale is another, and the
+  // Malayalam listing is the wrong page for a Telugu alert.
+  t('and at the language that actually opened',
+    /const code = opened\?\.eventCode \|\| watch\.eventCode/.test(bg));
   t('clicking the notification recovers that day too',
     /k\.split\('\|'\)\[2\]/.test(bg));
   t('the alert says when a premiere is what opened',
     /Premiere booking open/.test(bg) && /function describeOpened/.test(bg));
-  t('no button means no keyboard', /if \(button\?\.url\)/.test(bg));
+  t('no button means no keyboard', /if \(row\.length\)/.test(bg) &&
+    /\.filter\(\(b\) => b\?\.url\)/.test(bg));
 
   t('picking a chat adds rather than replaces',
     /ids\.includes\(c\.id\) \? ids\.filter/.test(oj));
@@ -2148,10 +2164,24 @@ console.log('\nrelease wiring');
   const chk = grabFrom(bg, 'checkRelease');
   t('a theatre-scoped check uses byvenue', chk.includes('byVenueApi'));
   t('a theatre-scoped check matches on the film', chk.includes('matchesFilm'));
-  t('an any-theatre check reads the film page', chk.includes('bookingSignal'));
+  t('an any-theatre check reads the film page', chk.includes('R.parseFilmPage'));
+  // The page it already fetched also links to the film's other languages, and
+  // once a film leaves the upcoming list that is the only place left to find
+  // them — which is exactly when the second language goes on sale.
+  t('and learns the other languages from it',
+    /adoptListings\(watch, page\.listings\)/.test(chk) &&
+    /function linkedListings/.test(readFileSync(here('release.js'), 'utf8')));
   t('an unknown signal never fires an alert',
     /signal === 'open' && st\.signal !== 'open'/.test(chk));
   t('an unknown signal is recorded as a warning', /signal === 'unknown'/.test(chk));
+  // Measured: all three of I'm Game's language pages carry identical
+  // "Book tickets" / "Releasing on" wording, so a page per language would be
+  // three times the requests for one signal — and an alert claiming a language
+  // the page never distinguished.
+  t('an any-theatre check reads one page, not one per language',
+    (chk.match(/R\.fetchText\(R\.filmUrl/g) || []).length === 1);
+  t('and does not claim a language it cannot tell apart',
+    /notifyRelease\(watch, \{\}, cfg\)/.test(chk));
 
   // Two kinds of alert share one surface; the id is all that survives a worker
   // teardown, so it has to be the thing that tells them apart.
@@ -2237,7 +2267,15 @@ console.log('\nrelease wiring');
   // A page that could only produce the event code then found nothing under it
   // and drew an unwatched bell for a film that was being watched.
   t('a watch is registered under every identifier it has',
-    /for \(const k of \[w\.group, w\.eventCode\]\) if \(k\) watched\.set\(k, w\.id\)/.test(cr));
+    /const keysOf = \(w\) => \[w\.group, w\.eventCode,/.test(cr) &&
+    (cr.match(/for \(const k of keysOf\(w\)\) watched\.set\(k, w\.id\)/g) || []).length === 2);
+  // Including the languages adopted after it was created — otherwise the Telugu
+  // card shows an unwatched bell for a film that is very much being watched,
+  // and clicking it makes a rival watch for the same showing.
+  t('and that includes every language it has adopted',
+    /\(w\.variants \|\| \[\]\)\.flatMap\(\(v\) => \[v\.group, v\.eventCode\]\)/.test(cr) &&
+    /function watchCovering/.test(bg) &&
+    /const covering = watchCovering\(cfg\.releases, entry\)/.test(bg));
   t('a bell carries every identifier it could be matched by',
     /btn\.dataset\.bellKeys = keys\.join\(','\)/.test(cr));
   t('matching tries each identifier in turn',
@@ -2305,9 +2343,14 @@ console.log('\nrelease wiring');
   // The welcome page opens on first install only, so an existing user has no
   // in-product path to a new feature without this.
   t('an update from before the feature flags a notice',
-    /reason === 'update' && olderThan\(previousVersion, '1\.3\.0'\)/.test(bg));
+    /reason === 'update' && olderThan\(previousVersion, '1\.4\.0'\)/.test(bg));
+  // A line about per-language alerts means nothing to somebody who has never
+  // seen release watching at all.
+  t('and the line matches how far back they were',
+    /olderThan\(previousVersion, '1\.3\.0'\) \? '1\.3' : '1\.4'/.test(bg) &&
+    /const WHATS_NEW = \{/.test(readFileSync(here('popup.js'), 'utf8')));
   t('the notice is a line in the popup, not a tab forced open',
-    /chrome\.storage\.local\.set\(\{ whatsNew/.test(bg) &&
+    /chrome\.storage\.local\.set\(\{\s*whatsNew/.test(bg) &&
     !/reason === 'update'[\s\S]{0,200}tabs\.create/.test(bg));
   t('versions are compared as numbers, so 1.10 is not older than 1.9',
     /String\(version \|\| ''\)\.split\('\.'\)\.map\(Number\)/.test(bg));
@@ -2402,6 +2445,475 @@ console.log('\nrelease wiring');
   const rl = readFileSync(here('release.js'), 'utf8');
   t('release fetches try anonymously first', /for \(const credentials of \['omit', 'include'\]\)/.test(rl));
   t('release.js never reads a cookie', !/document\.cookie/.test(rl));
+}
+
+
+// ------------------------------------------------------------ rows you want
+//
+// The position filters answer "is this block worth going for" in the abstract —
+// centred, far enough back, big enough. This one answers the question people
+// actually ask: we sit in H or J, tell me about those.
+console.log('\nrows you want');
+{
+  const rowMatcher = new Function(`${grabFrom(bg, 'rowMatcher')}\nreturn rowMatcher;`)();
+  const wanted = new Function(`${grabFrom(bg, 'wanted')}\nreturn wanted;`)();
+  const rowWarning = new Function(`${grabFrom(bg, 'rowWarning')}\nreturn rowWarning;`)();
+
+  // A real hall: BookMyShow skips I, as most of them do.
+  const hall = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L'];
+
+  t('no spec is no filter', rowMatcher('', hall).match === null);
+  t('one row is that row', (() => {
+    const { match } = rowMatcher('H', hall);
+    return match('H') && !match('G');
+  })());
+  t('a list is any of them', (() => {
+    const { match } = rowMatcher('H, J', hall);
+    return match('H') && match('J') && !match('K');
+  })());
+  t('case and spacing do not matter', (() => {
+    const { match } = rowMatcher(' h ;j ', hall);
+    return match('H') && match('j');
+  })());
+
+  // The whole reason ranges walk the hall's list: counting letters would put I
+  // inside F-K and leave K out of H-K by one.
+  t('a range follows the hall’s own order, not the alphabet', (() => {
+    const { match } = rowMatcher('F-K', hall);
+    return match('F') && match('H') && match('J') && match('K') &&
+           !match('E') && !match('L') && !match('I');
+  })());
+  t('a range reads the same written backwards', (() => {
+    const { match } = rowMatcher('K-F', hall);
+    return match('H') && !match('E');
+  })());
+  t('a list and a range together', (() => {
+    const { match } = rowMatcher('F-G, L', hall);
+    return match('F') && match('G') && match('L') && !match('H');
+  })());
+
+  // Before a hall has ever been read there is no order to walk, so letters are
+  // the fallback — and a hall that numbers its rows works the same way.
+  t('with no hall known, letters carry the range', (() => {
+    const { match } = rowMatcher('F-K', []);
+    return match('F') && match('H') && match('K') && !match('E');
+  })());
+  t('and numbered rows compare as numbers, not as text', (() => {
+    const { match } = rowMatcher('2-10', []);
+    return match('9') && match('10') && !match('11') && !match('1');
+  })());
+  t('a range across two kinds is refused, not guessed at',
+    rowMatcher('F-3', []).problems.length === 1);
+
+  // A filter that matches nothing is a watch that runs forever and never fires,
+  // which looks exactly like a watch that is working.
+  t('an unreadable spec filters nothing rather than everything', (() => {
+    const r = rowMatcher('F-3', []);
+    return r.match === null && r.problems.length === 1;
+  })());
+
+  const run = (row, over = {}) => ({ row, size: 3, ...over });
+  t('the filter actually excludes a block', (() => {
+    const { match } = rowMatcher('H, J', hall);
+    const kept = wanted([run('H'), run('K'), run('J')], { minAdjacent: 2, rowMatch: match });
+    return kept.length === 2 && kept.every((r) => r.row !== 'K');
+  })());
+  // Same rule as the two geometry fractions: missing data is not evidence
+  // against. A reading that produced no row label cannot be excluded by row.
+  t('a block with no row label is not excluded by it', (() => {
+    const { match } = rowMatcher('H', hall);
+    return wanted([run(''), run(null), run('H')], { minAdjacent: 2, rowMatch: match }).length === 3;
+  })());
+  t('and the other filters still apply alongside it', (() => {
+    const { match } = rowMatcher('H', hall);
+    return wanted([run('H', { size: 1 })], { minAdjacent: 2, rowMatch: match }).length === 0;
+  })());
+
+  t('a row this hall does not have is said out loud',
+    /no row/.test(rowWarning('Z', rowMatcher('Z', hall), hall) || ''));
+  t('a row it does have says nothing',
+    rowWarning('H', rowMatcher('H', hall), hall) === undefined);
+  t('an unreadable spec says that instead',
+    /every row is being watched/.test(rowWarning('F-3', rowMatcher('F-3', []), hall) || ''));
+  t('no spec, nothing to say', rowWarning('', rowMatcher('', hall), hall) === undefined);
+
+  // Wiring: the field has to reach the check, and the check has to reach you.
+  t('the filter is per show, falling back to the default',
+    /const rows = pick\('rows'\)/.test(bg));
+  t('ranges are resolved against the hall that was read',
+    /const rowOrder = \(data\.grid\?\.rows \|\| \[\]\)\.map\(\(r\) => r\.row\)/.test(bg));
+  {
+    const oh = readFileSync(here('options.html'), 'utf8');
+    const oj = readFileSync(here('options.js'), 'utf8');
+    const pj = readFileSync(here('popup.js'), 'utf8');
+    t('settings has a rows field', /id="rows"/.test(oh) && /\$\('rows'\)\.value/.test(oj));
+    t('and each show can override it', /class="rows"/.test(oj) &&
+      /rows: el\.querySelector\('\.rows'\)\.value\.trim\(\)/.test(oj));
+    // Typing row names blind is guesswork — F might be the fifth row or the
+    // fifteenth, and some halls number rather than letter.
+    t('a show whose hall has been read names its rows',
+      /seatState\?\.\[show\.url\]\?\.last\?\.map\?\.rows/.test(oj) &&
+      /This hall: /.test(oj));
+    t('the popup says which rows it is waiting on', /in \$\{esc\(last\.rows\)\}/.test(pj));
+    t('and flags a row that is not there', /last\.rowWarn/.test(pj));
+  }
+}
+
+// ------------------------------------------------- languages of one film
+//
+// The bug: I'm Game opened in three languages — Malayalam ET00473215, Telugu
+// ET00511702, Hindi ET00511704 — and one alert arrived, for the original, with
+// a link to the original's listing.
+//
+// probe-lang.js measured why, and it was not the matching. All three codes sit
+// under ONE group, EG00470725, so byvenue's Telugu row matched the watch and
+// was folded into the same alert as the Malayalam one: same notification id, so
+// the second replaced the first, one merged body naming neither language, and a
+// link built from `watch.eventCode` whatever had opened.
+//
+// What byvenue does split per language is the address: `im-game` for Malayalam,
+// `im-game-telugu` for Telugu. So a link has to follow the listing's own slug,
+// not the watch's.
+//
+// The fixtures below are that probe's response, not invented shapes.
+console.log('\nlanguages of one film');
+{
+  const R = await import('./release.js');
+
+  const watchOf = (over = {}) => ({
+    id: 'HYD:EG00470725', eventCode: 'ET00473215', group: 'EG00470725',
+    slug: 'im-game', title: "I'm Game", language: 'Malayalam',
+    releaseDate: '20260903', citySlug: 'hyderabad', regionCode: 'HYD',
+    variants: [], ...over,
+  });
+  // As byvenue returned it: same group, its own slug, its own language.
+  const telugu = { eventCode: 'ET00511702', group: 'EG00470725', title: "I'm Game",
+                   language: 'Telugu', dimension: '2D', slug: 'im-game-telugu' };
+
+  // -- what the probe settled -------------------------------------------
+  t('a dub under the shared group matches on the group',
+    R.matchesFilm(telugu, watchOf()) === true);
+  // The net for a watch whose group could not be read — the one most likely to
+  // miss a language.
+  t('and on the slug stem when no group is known',
+    R.variantCandidate(telugu, watchOf({ group: null })) === 'slug');
+  t('the stem is reached from either language',
+    R.filmStem('im-game-telugu') === 'im-game' && R.filmStem('im-game') === 'im-game');
+  t('a sequel is not a language', R.filmStem('im-game-2') === 'im-game-2');
+  t('a slug names the language it spells out',
+    R.slugLanguage('im-game-telugu') === 'Telugu' && R.slugLanguage('im-game') === '');
+  t('an unrelated film is never a candidate',
+    R.variantCandidate({ eventCode: 'ET00888888', slug: 'other-film', title: 'Other' },
+                       watchOf({ group: null })) === null);
+  // Titles are shared by remakes and re-releases in a way addresses are not.
+  t('a same-titled film with its own stem is not adopted',
+    R.variantCandidate({ eventCode: 'ET00999999', slug: 'im-game-2019', title: "I'm Game" },
+                       watchOf({ group: null })) === null);
+  t('the film’s own code is never re-adopted',
+    R.variantCandidate({ eventCode: 'ET00473215', slug: 'im-game' }, watchOf()) === null);
+
+  t('a recorded variant joins the identity of the watch', (() => {
+    const w = watchOf();
+    return R.addVariant(w, telugu) && R.knownCodes(w).includes('ET00511702') &&
+           R.matchesFilm(telugu, w);
+  })());
+  t('recording the same variant twice changes nothing', (() => {
+    const w = watchOf();
+    R.addVariant(w, telugu);
+    return R.addVariant(w, telugu) === false && w.variants.length === 1;
+  })());
+  t('a variant remembers the slug its own listing lives under',
+    R.variantFor(watchOf({ variants: [telugu] }), 'ET00511702').slug === 'im-game-telugu');
+  t('the format rides along when it is not the ordinary one',
+    R.languageLabel({ language: 'Telugu', dimension: 'IMAX 3D' }) === 'Telugu · IMAX 3D' &&
+    R.languageLabel({ language: 'Telugu', dimension: '2D' }) === 'Telugu');
+
+  // -- the film page's own links ----------------------------------------
+  {
+    const html =
+      `<a href="/movies/hyderabad/im-game-telugu/buytickets/ET00511702/20260903?language=Telugu">T</a>` +
+      `<a href="/movies/hyderabad/im-game-hindi/ET00511704">H</a>` +
+      `<a href="/movies/hyderabad/im-game-2/ET00777777">sequel</a>` +
+      `<a href="/movies/hyderabad/some-other-film/ET00888888">also liked</a>`;
+    const got = R.linkedListings(html, 'im-game');
+    t('the film page yields the languages it links to',
+      got.length === 2 && got[0].language === 'Telugu' && got[1].language === 'Hindi');
+    t('and each one’s own address', got[0].slug === 'im-game-telugu');
+    t('a sequel sharing the stem is not one of them',
+      !got.some((x) => x.eventCode === 'ET00777777'));
+    t('nor is the recommendation rail',
+      !got.some((x) => x.eventCode === 'ET00888888'));
+    t('it reads the same from any language’s page',
+      R.linkedListings(html, 'im-game-telugu').length === 2);
+    t('a missing slug reads nothing rather than everything',
+      R.linkedListings(html, '').length === 0);
+  }
+
+  // -- the link and the notification id ----------------------------------
+  {
+    const releaseLink = new Function('R',
+      `${grabFrom(bg, 'releaseLink')}\n${grabFrom(bg, 'openedDay')}\nreturn releaseLink;`)(R);
+    const notifKey = new Function(
+      `${grabFrom(bg, 'notifKey')}\n${grabFrom(bg, 'openedDay')}\nreturn notifKey;`)();
+    const w = watchOf({ variants: [telugu] });
+
+    // The bug in the screenshot: a Telugu opening, linked to /im-game/ET00473215.
+    t('a Telugu alert links to the Telugu listing, under its own slug',
+      releaseLink(w, { eventCode: 'ET00511702', slug: 'im-game-telugu',
+                       venues: [{ date: '20260903' }] }) ===
+      'https://in.bookmyshow.com/movies/hyderabad/im-game-telugu/buytickets/ET00511702/20260903');
+    t('and the slug is recovered from the watch when the alert omits it',
+      releaseLink(w, { eventCode: 'ET00511702', venues: [{ date: '20260903' }] })
+        .includes('/im-game-telugu/'));
+    t('an alert with no language still links to the film',
+      releaseLink(w, {}) ===
+      'https://in.bookmyshow.com/movies/hyderabad/im-game/buytickets/ET00473215/20260903');
+    // Notifications replace each other by id: one id per watch is why the
+    // Malayalam alert and the Telugu one could not both be read.
+    t('two languages are two notifications, not one overwriting the other',
+      notifKey(w, { eventCode: 'ET00511702', venues: [{ date: '20260903' }] }) !==
+      notifKey(w, { eventCode: 'ET00473215', venues: [{ date: '20260903' }] }));
+    t('and a click can recover the language from the id',
+      notifKey(w, { eventCode: 'ET00511702', venues: [{ date: '20260903' }] })
+        .endsWith('#ET00511702|20260903'));
+  }
+
+  // -- the any-theatre alert ---------------------------------------------
+  //
+  // No theatres named means no byvenue feed, and the film page says the film
+  // went on sale without saying which listing did. The alert that used to come
+  // out of that named no language and linked to the code the watch was created
+  // from — which is the alert that arrived for I'm Game.
+  {
+    const listingButtons = new Function('R',
+      `${grabFrom(bg, 'listingButtons')}\n${grabFrom(bg, 'releaseLink')}\n` +
+      `${grabFrom(bg, 'openedDay')}\nconst MAX_BUTTONS = 4;\nreturn listingButtons;`)(R);
+
+    const w = watchOf({ variants: [
+      telugu,
+      { eventCode: 'ET00511704', group: 'EG00470725', language: 'Hindi', slug: 'im-game-hindi' },
+    ] });
+    const buttons = listingButtons(w);
+
+    t('an alert that cannot name a language offers all of them',
+      buttons.length === 3 && buttons.map((b) => b.text).join('|') ===
+        'Book Malayalam|Book Telugu|Book Hindi');
+    t('and each button goes to its own listing',
+      buttons[1].url.endsWith('/im-game-telugu/buytickets/ET00511702/20260903') &&
+      buttons[2].url.endsWith('/im-game-hindi/buytickets/ET00511704/20260903'));
+    // A film in one language must not sprout a language button.
+    t('a single-listing film keeps its one button',
+      listingButtons(watchOf()).length === 1);
+    // Telegram stacks them; eight languages would be a wall.
+    t('the row is capped',
+      listingButtons(watchOf({ variants: Array.from({ length: 9 }, (_, i) => (
+        { eventCode: `ET0060000${i}`, language: `L${i}`, slug: `im-game-l${i}` })) })).length === 4);
+  }
+
+  // -- the switcher data, and the per-listing signal ---------------------
+  //
+  // Both measured on the live film page and its buytickets pages: the film page
+  // carries a language → formats[] → eventCode structure, and a buytickets page
+  // is scoped to its event code (17 cinemas Malayalam, 54 Telugu, 2 Hindi, same
+  // film, same day). The film page ships no __NEXT_DATA__ at all, which is why
+  // these are read out of text.
+  {
+    const switcher =
+      '{"language":"Telugu","formats":[{"dimension":"2D","eventCode":"ET00511702",' +
+      '"analytics":{"event_code":"ET00473215","format":"2D"},' +
+      '"refEventCode":"ET00511702","language":"Telugu"}]},' +
+      '{"language":"Hindi","formats":[{"dimension":"2D","eventCode":"ET00511704",' +
+      '"analytics":{},"refEventCode":"ET00511704","language":"Hindi"}]},' +
+      '{"language":"Malayalam","formats":[{"dimension":"2D","eventCode":"ET00473215"}]}';
+
+    const langs = R.parseLanguages(switcher);
+    t('the film page names every language and its code', langs.length === 3);
+    t('and pairs each with the right one',
+      langs.find((l) => l.eventCode === 'ET00511702').language === 'Telugu' &&
+      langs.find((l) => l.eventCode === 'ET00511704').language === 'Hindi' &&
+      langs.find((l) => l.eventCode === 'ET00473215').language === 'Malayalam');
+    t('and carries the format', langs[0].dimension === '2D');
+    t('a page with no switcher yields nothing, not a guess',
+      R.parseLanguages('<html>nothing here</html>').length === 0);
+    // The rails at the foot of a film page link nationally, with no city
+    // segment — requiring one found none of them.
+    t('a city-less address is still an address',
+      R.linkedListings('<a href="/movies/im-game-telugu/ET00511702">x</a>', 'im-game')
+        .length === 1);
+    t('the two readings merge rather than compete', (() => {
+      const merged = R.mergeListings(
+        [{ eventCode: 'ET00511702', language: 'Telugu' }],
+        [{ eventCode: 'ET00511702', slug: 'im-game-telugu' }]);
+      return merged.length === 1 && merged[0].language === 'Telugu' &&
+             merged[0].slug === 'im-game-telugu';
+    })());
+
+    const page = (body) => 'x'.repeat(2400) + body;
+    t('a listing selling tickets reads open',
+      R.listingSignal(page('"venueCode":"ALUC" "sessionId":"1"'), 'ET00511702').signal === 'open');
+    t('and says how many cinemas took it',
+      R.listingSignal(page('"venueCode":"ALUC" "venueCode":"ASHN" "sessionId":"1"'),
+                      'ET1').venues === 2);
+    t('its own page with nothing on it reads closed',
+      R.listingSignal(page('ET00511702 and no shows at all'), 'ET00511702').signal === 'closed');
+    // The failure this guards against is a reshaped page reading as "nothing on
+    // sale" forever while looking like it is working.
+    t('a page that is not this listing’s reads unknown, never closed',
+      R.listingSignal(page('some other page entirely'), 'ET00511702').signal === 'unknown');
+    t('and so does a page too small to be one',
+      R.listingSignal('ET00511702', 'ET00511702').signal === 'unknown');
+  }
+
+  // -- a real any-theatre check ------------------------------------------
+  {
+    const filmPage = 'y'.repeat(3000) +
+      '"language":"Telugu","formats":[{"dimension":"2D","eventCode":"ET00511702",' +
+      '"refEventCode":"ET00511702","language":"Telugu"}]' +
+      ',"language":"Malayalam","formats":[{"dimension":"2D","eventCode":"ET00473215"}]' +
+      '"releaseDate":"2026-09-03T00:00:00" EG00470725 Book tickets';
+    // Telugu is selling; Malayalam is not yet.
+    const selling = 'z'.repeat(2400) + ' ET00511702 "venueCode":"ALUC" "venueCode":"ASHN" "sessionId":"1"';
+    const quiet = 'z'.repeat(2400) + ' ET00473215 nothing scheduled';
+
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      const u = String(url);
+      const body = u.includes('/buytickets/ET00511702/') ? selling
+        : u.includes('/buytickets/ET00473215/') ? quiet
+        : u.includes('/buytickets/') ? null
+        : u.includes('/explore/upcoming-movies-') ? '<html></html>'
+        : filmPage;
+      return body === null
+        ? { ok: false, status: 404, text: async () => '' }
+        : { ok: true, status: 200, text: async () => body };
+    };
+
+    const fired = [];
+    const make = new Function(
+      'R', 'setCfg', 'sleep', 'jitter', 'notifyRelease', 'LOOKUP_TRIES', 'MAX_LISTINGS',
+      'VARIANT_SCAN_MS', 'UPCOMING_TTL', 'upcomingCache',
+      ['checkRelease', 'backfillWatch', 'learnVariants', 'discoverFromUpcoming',
+       'upcomingCards', 'byLanguage', 'knownLanguages', 'venueNames', 'adoptListings']
+        .map((n) => grabFrom(bg, n)).join('\n') + '\nreturn checkRelease;');
+    const checkRelease = make(
+      R, async () => {}, async () => {}, (x) => x,
+      (watch, opened) => fired.push(opened), 5, 6, 6 * 3600e3, 30 * 60e3, new Map());
+
+    const watch = watchOf({ venues: null });
+    const cfg = { releases: [watch], releaseState: {},
+                  release: { premiereDays: 0, intervalMinutes: 10, dormancyDays: 7 },
+                  venueCache: {} };
+
+    const st = await checkRelease(watch, cfg);
+
+    t('an any-theatre watch learns its languages from the film page',
+      R.knownCodes(watch).includes('ET00511702') &&
+      R.variantFor(watch, 'ET00511702').language === 'Telugu');
+    // The whole point: without theatres, only the language actually selling
+    // rings — the film page would have said "open" for all of them.
+    t('only the language actually selling rings',
+      fired.length === 1 && fired[0].language === 'Telugu');
+    t('and the alert says how many cinemas took it', fired[0].cinemas === 2);
+    t('the one not selling is recorded as closed, not fired',
+      st.signals.ET00473215 === 'closed');
+
+    // When Malayalam opens later, it rings then — and only then.
+    globalThis.fetch = async (url) => {
+      const u = String(url);
+      const body = u.includes('/buytickets/') ? selling
+        : u.includes('/explore/upcoming-movies-') ? '<html></html>' : filmPage;
+      return { ok: true, status: 200, text: async () => body };
+    };
+    await checkRelease(watch, cfg);
+    t('the second language rings when it opens, not before',
+      fired.length === 2 && fired[1].language === 'Malayalam');
+    t('and the first does not ring twice',
+      fired.filter((f) => f.language === 'Telugu').length === 1);
+
+    globalThis.fetch = realFetch;
+  }
+
+  // -- a real check, against the response the probe captured -------------
+  {
+    const child = (code, language, url, shows) => ({
+      EventCode: code, EventGroup: 'EG00470725', EventLanguage: language,
+      EventDimension: '2D', EventUrl: url, EventName: `I'm Game - ${language}`,
+      ShowTimes: Array.from({ length: shows }, (_, i) => (
+        { SessionId: `${code}-${i}`, ShowTime: '10:00 AM', ScreenName: 'S1' })),
+    });
+    const byVenue = JSON.stringify({
+      ShowDetails: [{
+        Date: '20260903', Venues: { VenueCode: 'ALUC' },
+        Event: [
+          { EventTitle: "I'm Game", EventGroup: 'EG00470725', ChildEvents: [
+            child('ET00511702', 'Telugu', 'im-game-telugu', 2),
+            child('ET00473215', 'Malayalam', 'im-game', 1),
+          ] },
+          { EventTitle: 'Something Else', EventGroup: 'EG00111111', ChildEvents: [
+            { EventCode: 'ET00111111', EventGroup: 'EG00111111', EventLanguage: 'Telugu',
+              EventUrl: 'something-else', ShowTimes: [{ SessionId: 'x', ShowTime: '1 PM' }] },
+          ] },
+        ],
+      }],
+    });
+
+    const seenUrls = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      seenUrls.push(String(url));
+      return String(url).includes('/api/v3/mobile/showtimes/byvenue')
+        ? { ok: true, status: 200, text: async () => byVenue }
+        : { ok: false, status: 404, text: async () => '' };
+    };
+
+    const fired = [];
+    const make = new Function(
+      'R', 'setCfg', 'sleep', 'jitter', 'notifyRelease', 'LOOKUP_TRIES',
+      'VARIANT_SCAN_MS', 'UPCOMING_TTL', 'upcomingCache',
+      ['checkRelease', 'backfillWatch', 'learnVariants', 'discoverFromUpcoming',
+       'upcomingCards', 'byLanguage', 'knownLanguages', 'venueNames', 'adoptListings']
+        .map((n) => grabFrom(bg, n)).join('\n') + '\nreturn checkRelease;');
+    const checkRelease = make(
+      R, async () => {}, async () => {}, (x) => x,
+      (watch, opened) => fired.push(opened), 5, 6 * 3600e3, 30 * 60e3, new Map());
+
+    const watch = watchOf({ venues: ['ALUC'] });
+    const cfg = { releases: [watch], releaseState: {},
+                  release: { premiereDays: 0, intervalMinutes: 10, dormancyDays: 7 },
+                  venueCache: { hyderabad: { venues: [{ code: 'ALUC', name: 'ALLU Cinemas' }] } } };
+
+    const st = await checkRelease(watch, cfg);
+
+    // This is the whole bug, in one assertion.
+    t('both languages ring, separately', fired.length === 2);
+    t('and each alert names its own language',
+      fired.some((f) => f.language === 'Malayalam') &&
+      fired.some((f) => f.language === 'Telugu'));
+    t('each alert carries the code and slug its link needs',
+      fired.some((f) => f.eventCode === 'ET00511702' && f.slug === 'im-game-telugu') &&
+      fired.some((f) => f.eventCode === 'ET00473215' && f.slug === 'im-game'));
+    t('the Telugu alert names the cinema it opened at',
+      fired.every((f) => f.venues[0].name === 'ALLU Cinemas'));
+    t('the dub is recorded on the watch',
+      watch.variants.some((v) => v.eventCode === 'ET00511702' &&
+                                 v.slug === 'im-game-telugu' && v.language === 'Telugu'));
+    t('the check reports the languages it now covers',
+      (st.last.languages || []).includes('Telugu') &&
+      (st.last.languages || []).includes('Malayalam'));
+    t('nothing unrelated was adopted', !R.knownCodes(watch).includes('ET00111111'));
+    // Discovery costs no request of its own: it reads the response the check
+    // was already making.
+    t('and learning them cost no extra fetch',
+      seenUrls.every((u) => u.includes('/api/v3/mobile/showtimes/byvenue')));
+
+    // A watch that re-announces what it announced ten minutes ago is one you
+    // learn to ignore.
+    const before = fired.length;
+    await checkRelease(watch, cfg);
+    t('a second check announces nothing new', fired.length === before);
+
+    globalThis.fetch = realFetch;
+  }
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
