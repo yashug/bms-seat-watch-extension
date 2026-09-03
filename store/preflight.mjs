@@ -57,7 +57,10 @@ t('listing names this exact package', listing.includes(`seat-watch-${mf.version}
 // than the latest one, because the mistake it catches is re-uploading any
 // build that already exists — and a resubmission of 1.3.0 bounces exactly as
 // a resubmission of 1.2.0 does.
-const PUBLISHED = ['1.2.0', '1.3.0'];
+// 1.4.0 is in the list from the moment it was UPLOADED, not from when it goes
+// live: the store rejects a version it already holds, and one sitting in review
+// is already held.
+const PUBLISHED = ['1.2.0', '1.3.0', '1.4.0'];
 t('version is not one already published',
   !PUBLISHED.includes(mf.version), 'the store rejects a repeat version');
 

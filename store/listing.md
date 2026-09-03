@@ -359,7 +359,7 @@ for a reason that has nothing to do with your code.
 ### 3. Build the package
 
 ```sh
-zip -r seat-watch-1.4.0.zip . \
+zip -r seat-watch-1.4.1.zip . \
   -x '.*' -x '__MACOSX*' -x 'verify.mjs' -x 'store/*' -x 'icons/*' \
   -x 'docs/*' -x 'probes/*' -x 'promo/*' -x 'video/*' -x 'package.json' \
   -x 'README.md' -x '*.zip' -x '.DS_Store' -x '*/.DS_Store'
@@ -438,7 +438,32 @@ requested up front, and Chrome asks per address at the moment one is pasted.
 
 This is an update, not a first submission, so most of the form is already filled in.
 
-#### 1.4.0 — the current one
+#### 1.4.1 — the current one
+
+| Field | Why |
+|---|---|
+| **Package** | `seat-watch-1.4.1.zip` |
+| **Description** | The two 1.4.0 lines stay; add the fix line below to the changelog |
+| **Screenshots** | The settings shot pictures the old "Nearest fifth" dropdown. Rebuild `store/shots` before uploading, or leave it — it is a dropdown, not a claim about what the extension does |
+| **Everything else** | Unchanged |
+
+A bug-fix release on top of 1.4.0, which was still in review when these were found. No
+new permission, no new content script, no new host — nothing that needs a fresh
+justification.
+
+What changed:
+
+- **Saving settings no longer deletes shows.** The page read its cards once, at load, and
+  wrote them back over the whole list — so a show added from the popup or from
+  BookMyShow after the page was opened was deleted by a save that only meant to change a
+  cadence. Saves now merge against what is stored, and a show added elsewhere appears in
+  the list without a reload.
+- **"Rows to skip at the front" counts rows.** It was a fraction of the hall — nearest
+  fifth, nearest third, front half — which is not how anyone thinks about it, and the
+  same fraction meant a different number of rows in every screen. It now reads "the first
+  3 rows". Settings saved with the old fractions keep working and convert on first open.
+
+#### 1.4.0 — submitted, in review when 1.4.1 was cut
 
 | Field | Why |
 |---|---|
