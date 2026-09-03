@@ -13,6 +13,15 @@ Worth re-running against another release if a film ever alerts for one language
 only. Paste it into a console on any `in.bookmyshow.com` page; the film it tests
 is the `FILM` constant at the top.
 
+[`probe-seatmap.js`](probe-seatmap.js) settles which end of the seat canvas the screen is
+on. `screenRow` — what "Rows to skip at the front" counts — assumes BookMyShow draws the
+screen at the BOTTOM of the layout, so the largest y is the row nearest it. Confirmed at
+ALUC Kokapet (HYD) on 2026-09-03 by observation: skipping the first 3 rows dropped the
+rows against the screen. Worth re-running against a hall that looks wrong — a layout that
+draws its rows the other way up would trim the back of the hall instead of the front, and
+an alert looks identical either way. Paste it into the console of a seat-layout page once
+the seats have drawn.
+
 [`health-check.js`](health-check.js) is the only other script still worth running. Paste it
 into the service worker console when release watches stop firing, before assuming the
 bug is in the extension. It checks the four calls the feature depends on and names

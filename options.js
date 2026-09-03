@@ -5,6 +5,12 @@ const showsEl = $('shows');
 // hall actually has instead of asking you to guess them.
 let seatState = {};
 
+// Shows deleted here since the page loaded — a removed card, or one whose
+// address was cleared. Save merges against storage, so a deletion has to be
+// remembered rather than inferred from a missing card: an absent card is also
+// what a show added elsewhere looks like, and those are kept.
+const removed = new Set();
+
 function showRow(show = {}) {
   const wrap = document.createElement('div');
   wrap.className = 'card';
@@ -29,6 +35,9 @@ function showRow(show = {}) {
     <div class="err"></div>`;
   wrap.querySelector('.label').value = show.label || '';
   wrap.querySelector('.url').value = show.url || '';
+  // Which stored show this card stands for. Save merges on it, so a settings
+  // page that has been open a while can't delete a show added since.
+  if (show.url) wrap.dataset.orig = show.url;
   wrap.querySelector('.minAdj').value = show.minAdjacent ?? '';
   wrap.querySelector('.rows').value = show.rows || '';
   // The rows this hall actually has, from the last reading. Typing row names
@@ -41,7 +50,10 @@ function showRow(show = {}) {
     wrap.querySelector('.rowsSeen').textContent =
       `This hall: ${seen.join(', ')}`;
   }
-  wrap.querySelector('.remove').onclick = () => wrap.remove();
+  wrap.querySelector('.remove').onclick = () => {
+    if (wrap.dataset.orig) removed.add(wrap.dataset.orig);
+    wrap.remove();
+  };
   showsEl.appendChild(wrap);
   return wrap;
 }
@@ -53,7 +65,11 @@ function readShows() {
     const url = el.querySelector('.url').value.trim();
     const err = el.querySelector('.err');
     err.textContent = '';
-    if (!url) continue;
+    if (!url) {
+      // Emptying the address is the other way to drop a show.
+      if (el.dataset.orig) removed.add(el.dataset.orig);
+      continue;
+    }
     if (!/^https:\/\/in\.bookmyshow\.com\/.*\/seat-layout\//.test(url)) {
       err.textContent = 'That isn’t a seat-map address. Open the showtime on '
                       + 'BookMyShow until you can see the seats, then copy the address bar.';
@@ -62,6 +78,7 @@ function readShows() {
     }
     const minAdj = el.querySelector('.minAdj').value;
     out.push({
+      orig: el.dataset.orig,
       url,
       label: el.querySelector('.label').value.trim() || undefined,
       minAdjacent: minAdj === '' ? undefined : Number(minAdj),
@@ -70,6 +87,64 @@ function readShows() {
   }
   return bad ? null : out;
 }
+
+/**
+ * Settings can be saved from a page that was opened before the newest show
+ * existed: the popup, the "Watch this show" button on BookMyShow and the
+ * worker's retirement sweep all write `shows` behind this page's back. Writing
+ * back only what the cards hold would delete every one of those. So the save is
+ * a three-way merge against storage as it stands at that moment — a card edited
+ * here wins for its own show, a show this page never saw is kept as it is, and
+ * a show removed elsewhere stays removed rather than being resurrected by a
+ * card that outlived it.
+ */
+function mergeShows(edited, current) {
+  const live = new Set(current.map((s) => s.url));
+  const claimed = new Set();
+  const out = [];
+  for (const { orig, ...show } of edited) {
+    // A card that stood for a show which has since been removed elsewhere.
+    if (orig && !live.has(orig)) continue;
+    if (orig) claimed.add(orig);
+    out.push(show);
+  }
+  for (const show of current) {
+    if (!claimed.has(show.url) && !removed.has(show.url)) out.push(show);
+  }
+
+  // Typing an address that was also added elsewhere meanwhile would otherwise
+  // leave the same show twice; the card wins, because it may carry edits.
+  const seen = new Set();
+  return out.filter((show) => {
+    if (seen.has(show.url)) return false;
+    seen.add(show.url);
+    return true;
+  });
+}
+
+/** One card per show, and a single empty one when there are none yet. */
+function renderShows(list) {
+  removed.clear();
+  showsEl.innerHTML = '';
+  (list.length ? list : [{}]).forEach(showRow);
+}
+
+/** Every show address this page currently has a card for, saved or just typed. */
+const cardUrls = () => new Set(
+  [...showsEl.querySelectorAll('.card')]
+    .flatMap((el) => [el.dataset.orig, el.querySelector('.url').value.trim()])
+    .filter(Boolean));
+
+// A show added from the popup or from BookMyShow while this page sits open
+// appears here too, rather than being invisible until the next reload. Existing
+// cards are left alone — half-typed edits are not worth losing to a repaint.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !changes.shows) return;
+  const known = cardUrls();
+  for (const show of changes.shows.newValue || []) {
+    if (!known.has(show.url) && !removed.has(show.url)) showRow(show);
+  }
+});
 
 /**
  * Chrome won't let the service worker POST to an address the extension has no
@@ -349,6 +424,44 @@ function groupRegions(regions) {
   };
 }
 
+/**
+ * "Rows to skip at the front" used to be a fraction of the hall — a fifth, a
+ * third, a half — and nobody thinks in fifths of a hall. It is a row count now.
+ *
+ * A fraction saved by an older version still has to mean something, and it
+ * cannot be converted exactly: it was relative to a hall whose depth is only
+ * known once that hall has been read. Twelve rows is the ordinary multiplex
+ * screen, so that is what it is converted against. The filter still honours the
+ * stored fraction until this page is saved, so nothing changes behind anyone's
+ * back — this only decides which count the dropdown opens on.
+ */
+const TYPICAL_ROWS = 12;
+
+function skipRowsFrom(defaults = {}) {
+  if (defaults.skipRows != null) return Number(defaults.skipRows) || 0;
+  if (defaults.minFromScreen == null) return 0;
+  return Math.min(9, Math.max(1, Math.round(Number(defaults.minFromScreen) * TYPICAL_ROWS)));
+}
+
+/**
+ * A count the dropdown has no option for — a converted fraction, or a value
+ * from a newer build — gets one rather than being silently read as "keep them
+ * all". Assigning an unmatched value to a <select> selects nothing, and the
+ * next save would then quietly turn the filter off.
+ */
+function setSkipRows(n) {
+  const sel = $('skipfront');
+  if (!n) { sel.value = ''; return; }
+  const want = String(n);
+  if (![...sel.options].some((o) => o.value === want)) {
+    const opt = new Option(`The first ${want} rows`, want);
+    // In with the other counts, in order, rather than tacked on after them.
+    const after = [...sel.options].find((o) => o.value && Number(o.value) > n);
+    sel.add(opt, after || null);
+  }
+  sel.value = want;
+}
+
 const chosenCity = () => {
   const opt = $('city').selectedOptions[0];
   return opt?.value ? { slug: opt.value, code: opt.dataset.code || '', name: opt.textContent } : null;
@@ -361,13 +474,12 @@ async function load() {
   $('hook').value = s.webhook || '';
   $('minAdj').value = s.defaults?.minAdjacent ?? 2;
   $('where').value = WHERE.find(([, v]) => v === s.defaults?.maxOffCentre)?.[0] ?? '';
-  $('skipfront').value = s.defaults?.minFromScreen == null ? '' : String(s.defaults.minFromScreen);
+  setSkipRows(skipRowsFrom(s.defaults));
   $('bestOnly').checked = s.defaults?.bestsellerOnly === true;
   $('rows').value = s.defaults?.rows || '';
   showCadence(s.cadence);
   seatState = s.state || {};
-  showsEl.innerHTML = '';
-  (s.shows?.length ? s.shows : [{}]).forEach(showRow);
+  renderShows(s.shows || []);
 
   const rel = s.release || {};
   $('relEvery').value = rel.intervalMinutes ?? 10;
@@ -427,8 +539,8 @@ const flash = (msg, bad = false) => {
 $('add').onclick = () => showRow().querySelector('.url').focus();
 
 $('save').onclick = async () => {
-  const shows = readShows();
-  if (shows === null) return flash('Check the addresses marked below', true);
+  const edited = readShows();
+  if (edited === null) return flash('Check the addresses marked below', true);
   const cadence = readCadence();
 
   const hook = $('hook').value.trim();
@@ -438,19 +550,29 @@ $('save').onclick = async () => {
     }
   } catch (e) { return flash(e.message, true); }
 
+  // Read as late as possible — the webhook prompt above can sit there for a
+  // while, and anything written in that time should still survive this save.
+  const now = await chrome.storage.local.get(['shows', 'release']);
+  const shows = mergeShows(edited, now.shows || []);
+
   await chrome.storage.local.set({
     telegram: { botToken: $('token').value.trim(), chatId: $('chat').value.trim() },
     webhook: hook,
     defaults: {
       minAdjacent: Number($('minAdj').value) || 2,
       maxOffCentre: offCentreFor($('where').value),
-      minFromScreen: $('skipfront').value === '' ? null : Number($('skipfront').value),
+      skipRows: $('skipfront').value === '' ? null : Number($('skipfront').value),
+      // Cleared, not carried: the fraction and the count are two answers to the
+      // same question, and leaving the old one behind would apply both.
+      minFromScreen: null,
       bestsellerOnly: $('bestOnly').checked,
       rows: $('rows').value.trim() || null,
     },
     cadence,
     shows,
     release: {
+      // Anything the worker keeps here that this page has no field for.
+      ...(now.release || {}),
       // Below two minutes stops being a watch and starts being a hammer.
       intervalMinutes: Math.max(2, Number($('relEvery').value) || 10),
       dormancyDays: Math.max(0, Number($('relDormancy').value) || 0),
@@ -478,7 +600,13 @@ $('save').onclick = async () => {
   }
 
   showCadence(cadence);   // reflect anything that got clamped
-  flash('Saved');
+  // What is on screen is now what is in storage, merged rows included.
+  const fromCards = new Set(edited.map((x) => x.url));
+  const kept = shows.filter((x) => !fromCards.has(x.url)).length;
+  renderShows(shows);
+  flash(kept > 0
+    ? `Saved — kept ${kept} show${kept === 1 ? '' : 's'} added elsewhere`
+    : 'Saved');
 };
 
 $('hookTest').onclick = async () => {

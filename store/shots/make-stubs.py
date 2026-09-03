@@ -98,7 +98,7 @@ OPTIONS_STATE = {
               "defaultVenues": {"HYD": ["ALUC", "AMBH"]}},
   "releases": [], "shows": [{}],
   "telegram": {"botToken": "8123456789:AAH7q2Xk9pLm", "chatId": "987654321, -1001234567890"},
-  "defaults": {"minAdjacent": 4, "maxOffCentre": 0.5, "minFromScreen": 0.25},
+  "defaults": {"minAdjacent": 4, "maxOffCentre": 0.5, "skipRows": 3},
 }
 
 VENUES = [

@@ -181,12 +181,39 @@ Free, open source: https://github.com/yashug/bms-seat-watch-extension
 `r/bangalore`, `r/hyderabad`, `r/india`, `r/chennaicity` — check each sub's self-promo
 rules first, post to **one** and wait a day.
 
+### If you get "Sorry, this post was removed by Reddit's filters."
+
+That exact wording is Reddit's own site-wide spam filter, **not the subreddit's mods** —
+a mod or AutoMod removal names the sub, and usually leaves a comment saying which rule.
+The post isn't deleted. It's sitting invisible in that sub's filter queue, waiting for a
+human. Three things put it there, in order of likelihood:
+
+- **Links in the body.** An account with little history dropping a Chrome Web Store URL
+  and a GitHub URL into one post is the precise shape the filter exists to catch.
+- **No footprint in that sub.** No comments there, no karma there, and a post history
+  that is mostly your own project.
+- **The same URL sent to several subs close together.**
+
+What to do, in order:
+
+1. **Modmail the sub.** One short human paragraph — what the post is, that it's free and
+   open source, that you'll take it down if it doesn't fit the sub. Ask them to look in
+   the filter queue. Mods approve these routinely, and this is the only step that
+   recovers *this* post.
+2. **Don't repost while you wait.** A duplicate of a filtered post is what turns one
+   filter hit into a site-wide flag on the account.
+3. **If nothing comes back in a day, post the link-free version below** — links out of
+   the body entirely, into your own comment afterwards.
+
+Worth doing before any of it: spend a few days commenting normally in the sub you want.
+The filter is scoring the account, not the sentence.
+
 **Title:**
 ```
 Made a free Chrome extension that tells you the moment BookMyShow opens booking for a film
 ```
 
-**Body:**
+**Body** — no links, deliberately:
 ```
 Booking for a big release doesn't open on release day — it opens whenever the distributor
 decides, often days early, at no particular hour, with nothing announcing it. If you're
@@ -199,13 +226,21 @@ It also does the original thing — watching a sold-out showtime for released se
 cinemas quietly put back on sale an hour or two before the show.
 
 Runs entirely in your browser. No server, no account, nothing stored anywhere but your
-own Chrome. Open source if you want to read it before installing.
+own Chrome. It's free and the code is public, so you can read it before installing.
 
 If you have a film group chat, one person can run it and everyone gets the alert at once.
 
-[store link] · [repo link]
+It's on the Chrome Web Store as "Seat Watch for BookMyShow" — I'll drop the store and
+repo links in a comment so this post isn't just a link.
 
 Happy to answer anything about how it works.
+```
+
+Then, once the post is actually live, add the links as your own top-level comment:
+
+```
+Store: [store link]
+Code: [repo link]
 ```
 
 > Reddit will ask two things within the hour: *"does this scrape/hammer their site?"* and

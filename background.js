@@ -158,15 +158,26 @@ function extractFromPage({ SOLD, PITCH }) {
   //
   //   offCentre  0 = dead centre,       1 = hard against a side wall
   //   fromScreen 0 = front row,         1 = back row
+  //   screenRow  how many rows back from the screen, 0 = the row at the screen
+  //
+  // screenRow is what "skip the first 3 rows" is answered with. The fraction
+  // cannot answer it: a fifth of a 9-row hall and a fifth of a 20-row hall are
+  // different numbers of rows, and the person setting it is thinking of rows.
   //
   // fromScreen inverts the row index on purpose: BookMyShow draws the screen at
   // the BOTTOM of the layout, so the largest y is the row nearest it and index 0
-  // is the back of the hall.
+  // is the back of the hall. Checked against a real hall on 2026-09-03 — ALUC
+  // Kokapet, HYD — where "skip the first 3 rows" dropped the rows against the
+  // screen. It was a guess until then, and an alert looks identical whichever
+  // end is trimmed, so nothing else would ever have caught it being backwards.
   const xs = seats.map(s => s.x);
   const hallLeft = Math.min(...xs), hallRight = Math.max(...xs);
   const halfWidth = Math.max(1, (hallRight - hallLeft) / 2);
   const midX = (hallLeft + hallRight) / 2;
   const lastRow = Math.max(1, rowYs.length - 1);
+  // Not lastRow: that is floored at 1 to keep the fraction from dividing by
+  // zero, and a one-row hall's only row is row 0 of the count, not row 1.
+  const lastIndex = rowYs.length - 1;
 
   return {
     title, subtitle, grid,
@@ -186,6 +197,7 @@ function extractFromPage({ SOLD, PITCH }) {
         gx1: colOf(r[r.length - 1].x),
         offCentre: Math.min(1, Math.abs(blockMid - midX) / halfWidth),
         fromScreen: 1 - rowIndex.get(r[0].y) / lastRow,
+        screenRow: lastIndex - rowIndex.get(r[0].y),
       };
     }),
   };
@@ -198,7 +210,7 @@ const DEFAULTS = {
   webhook: '',
   defaults: {
     minAdjacent: 2,
-    maxOffCentre: null, minFromScreen: null, bestsellerOnly: false,
+    maxOffCentre: null, skipRows: null, minFromScreen: null, bestsellerOnly: false,
     rows: null,     // "F-K, M" — empty means every row
   },
   cadence: CADENCE,
@@ -701,7 +713,10 @@ const runKey = (r) => `${r.row}:${r.nums[0]}-${r.nums[r.nums.length - 1]}`;
  *
  *   minAdjacent  seats side by side, no aisle between them
  *   maxOffCentre 0-1; 0.5 keeps the middle half of the hall
- *   minFromScreen 0-1; 0.25 skips the front quarter of the rows
+ *   skipRows     rows to drop counting from the screen; 3 skips the first three
+ *   minFromScreen 0-1; 0.25 skips the front quarter of the rows. What skipRows
+ *                replaced — still honoured, so a config saved by an older
+ *                version keeps filtering as it did until it is saved again.
  *   bestsellerOnly  only blocks BookMyShow marks as its best seats
  *   rowMatch     a predicate over row labels, from a spec like "F-K, M"
  */
@@ -789,6 +804,7 @@ function wanted(runs, want) {
     // Older readings predate the geometry, so a missing value can't exclude.
     if (want.maxOffCentre != null && r.offCentre != null &&
         r.offCentre > want.maxOffCentre) return false;
+    if (want.skipRows && r.screenRow != null && r.screenRow < want.skipRows) return false;
     if (want.minFromScreen != null && r.fromScreen != null &&
         r.fromScreen < want.minFromScreen) return false;
     return true;
@@ -866,6 +882,7 @@ async function checkShow(show, cfg) {
   const want = {
     minAdjacent: pick('minAdjacent') ?? 2,
     maxOffCentre: pick('maxOffCentre'),
+    skipRows: pick('skipRows'),
     minFromScreen: pick('minFromScreen'),
     bestsellerOnly: pick('bestsellerOnly') === true,
     rowMatch: rowSpec.match,

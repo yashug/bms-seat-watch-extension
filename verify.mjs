@@ -682,8 +682,23 @@ console.log('\nwhere a block sits in the hall');
   t('no filters keeps every block', keep({ minAdjacent: 2 }) === 'ABCDE');
   t('the middle half drops both walls', keep({ minAdjacent: 2, maxOffCentre: 0.5 }) === 'ACE');
   t('dead centre is stricter still', keep({ minAdjacent: 2, maxOffCentre: 0.22 }) === 'ACE');
-  t('skipping the front half drops the screen-side rows',
+  t('a fraction saved by an older version still filters',
     keep({ minAdjacent: 2, minFromScreen: 0.5 }) === 'ABC');
+
+  // Counting rows is what people actually asked for: nobody thinks in fifths of
+  // a hall, and a fifth of a 9-row hall is not a fifth of a 20-row one.
+  t('every block knows how many rows back from the screen it is',
+    at('E').screenRow === 0 && at('D').screenRow === 1 && at('A').screenRow === 4);
+  t('skipping the first row drops only the row at the screen',
+    keep({ minAdjacent: 2, skipRows: 1 }) === 'ABCD');
+  t('skipping the first three drops three',
+    keep({ minAdjacent: 2, skipRows: 3 }) === 'AB');
+  t('asking for more rows than the hall has keeps nothing',
+    keep({ minAdjacent: 2, skipRows: 9 }) === '');
+  t('no count and no fraction keeps every row',
+    keep({ minAdjacent: 2, skipRows: null }) === 'ABCDE');
+  t('a reading from before the count existed is never excluded by it',
+    wanted([{ size: 4, price: 300, fromScreen: 1 }], { minAdjacent: 2, skipRows: 3 }).length === 1);
   t('position and size combine', keep({ minAdjacent: 3, maxOffCentre: 0.5 }) === 'AC');
   t('a reading with no geometry is never excluded by position',
     wanted([{ size: 4, price: 300 }], { minAdjacent: 2, maxOffCentre: 0.1, minFromScreen: 0.9 })
@@ -2557,6 +2572,122 @@ console.log('\nrows you want');
     t('the popup says which rows it is waiting on', /in \$\{esc\(last\.rows\)\}/.test(pj));
     t('and flags a row that is not there', /last\.rowWarn/.test(pj));
   }
+}
+
+// --------------------------------------------- "skip the front rows" in words
+//
+// It used to be a fraction of the hall — nearest fifth, nearest third, front
+// half. Nobody thinks in fifths of a hall, and the same fraction is a different
+// number of rows in every screen. It is a row count now, and a fraction saved
+// by an older build still has to open on something sensible.
+console.log('\nrows to skip at the front');
+{
+  const oj = readFileSync(here('options.js'), 'utf8');
+  const oh = readFileSync(here('options.html'), 'utf8');
+
+  t('the dropdown counts rows rather than naming fractions',
+    /<option value="3">The first 3 rows<\/option>/.test(oh) &&
+    !/Nearest fifth|Nearest third|The front half/.test(oh));
+  t('and the hint says what they are counted from',
+    /Counted from the screen/.test(oh));
+
+  const typical = Number(/const TYPICAL_ROWS = (\d+)/.exec(oj)?.[1]);
+  t('the fraction converts against an ordinary multiplex screen', typical === 12);
+  const from = new Function(
+    `const TYPICAL_ROWS = ${typical}; ${grabFrom(oj, 'skipRowsFrom')}; return skipRowsFrom;`)();
+  t('a count is used as it stands', from({ skipRows: 3 }) === 3);
+  t('nothing set means nothing skipped', from({}) === 0 && from({ minFromScreen: null }) === 0);
+  t('an old fraction becomes the row count it meant in an ordinary hall',
+    from({ minFromScreen: 0.2 }) === 2 && from({ minFromScreen: 0.5 }) === 6);
+  t('a count wins over the fraction it replaced',
+    from({ skipRows: 2, minFromScreen: 0.5 }) === 2);
+  t('a fraction never converts to zero, which would read as “keep them all”',
+    from({ minFromScreen: 0.01 }) === 1);
+
+  // Assigning a value a <select> has no option for selects nothing, and the
+  // next save would then quietly turn the filter off.
+  const fakeSelect = (values) => {
+    const options = values.map((v) => ({ value: v, text: v }));
+    return { options, value: '',
+             add(opt, before) { options.splice(before ? options.indexOf(before) : options.length, 0, opt); } };
+  };
+  const setOn = (sel, n) => {
+    new Function('$', 'Option', `${grabFrom(oj, 'setSkipRows')}; setSkipRows(${n});`)(
+      () => sel, function (text, value) { return { text, value }; });
+    return sel;
+  };
+  t('a count the dropdown offers is simply selected',
+    setOn(fakeSelect(['', '2', '3', '5']), 3).value === '3');
+  t('zero means keep them all', setOn(fakeSelect(['', '2', '3', '5']), 0).value === '');
+  t('a converted fraction the dropdown lacks gets an option of its own',
+    setOn(fakeSelect(['', '2', '3', '5']), 6).value === '6');
+  t('and it lands in row order, not tacked on the end',
+    setOn(fakeSelect(['', '2', '3', '5']), 4).options.map((o) => o.value).join(',') === ',2,3,4,5');
+  t('the option reads as a row count',
+    setOn(fakeSelect(['', '2', '3', '5']), 4).options.find((o) => o.value === '4').text
+      === 'The first 4 rows');
+
+  t('saving writes the count', /skipRows: \$\('skipfront'\)\.value === '' \? null : Number/.test(oj));
+  t('and clears the fraction, so the two cannot both apply',
+    /minFromScreen: null/.test(oj));
+
+  const bgSrc = readFileSync(here('background.js'), 'utf8');
+  t('the worker reads the count per show, then from the defaults',
+    /skipRows: pick\('skipRows'\)/.test(bgSrc));
+  t('and still honours a fraction from a config saved before the change',
+    /minFromScreen: pick\('minFromScreen'\)/.test(bgSrc));
+}
+
+// ------------------------------------------------- saving settings keeps shows
+//
+// The bug: the settings page reads its cards once, at load, and the save wrote
+// them back over `shows` wholesale. Anything added since — from the popup, from
+// the "Watch this show" button, by the worker — was deleted by a save that only
+// meant to change a cadence. Opening settings before adding any show was the
+// worst case: the page held one blank card, so the save emptied the list.
+console.log('\nsettings saves merge, they do not overwrite');
+{
+  const oj = readFileSync(here('options.js'), 'utf8');
+  const merge = new Function(
+    'removed',
+    `${grabFrom(oj, 'mergeShows')}; return mergeShows;`);
+  const S = (url, extra = {}) => ({ url, ...extra });
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const run = (edited, current, gone = []) => merge(new Set(gone))(edited, current);
+
+  t('a show added elsewhere survives a save from a page that never saw it',
+    same(run([{ orig: 'A', url: 'A', label: 'mine' }], [S('A'), S('B')]),
+         [{ url: 'A', label: 'mine' }, S('B')]));
+  t('and a settings page opened while the list was empty does not empty it',
+    same(run([], [S('B')]), [S('B')]));
+  t('the card that was edited still wins for its own show',
+    same(run([{ orig: 'A', url: 'A', minAdjacent: 4 }], [S('A', { minAdjacent: 2 })]),
+         [{ url: 'A', minAdjacent: 4 }]));
+  t('Remove still removes',
+    same(run([], [S('A'), S('B')], ['A']), [S('B')]));
+  t('changing an address leaves no ghost of the old one',
+    same(run([{ orig: 'A', url: 'C' }], [S('A'), S('B')]), [S('C'), S('B')]));
+  t('a show removed elsewhere is not resurrected by the card that outlived it',
+    same(run([{ orig: 'A', url: 'A' }], [S('B')]), [S('B')]));
+  t('typing an address that was also added elsewhere leaves one show, not two',
+    same(run([{ url: 'B', label: 'mine' }], [S('B')]), [{ url: 'B', label: 'mine' }]));
+  t('the card identity never reaches storage',
+    !JSON.stringify(run([{ orig: 'A', url: 'A' }], [S('A')])).includes('orig'));
+
+  // The merge is only as good as what it merges against: reading storage before
+  // the webhook prompt would reopen the same window it exists to close.
+  t('storage is read at save time, not at load time',
+    /const now = await chrome\.storage\.local\.get\(\['shows', 'release'\]\)/.test(oj) &&
+    oj.indexOf('const now = await chrome.storage.local.get') > oj.indexOf('allowWebhook(hook)'));
+  t('a card remembers which stored show it stands for', /wrap\.dataset\.orig = show\.url/.test(oj));
+  t('a deletion is remembered rather than inferred from a missing card',
+    /removed\.add\(wrap\.dataset\.orig\)/.test(oj) && /removed\.add\(el\.dataset\.orig\)/.test(oj));
+  t('a show added elsewhere appears without a reload',
+    /storage\.onChanged\.addListener/.test(oj) && /if \(!known\.has\(show\.url\) && !removed\.has\(show\.url\)\) showRow\(show\)/.test(oj));
+  t('and the page repaints itself from what was actually stored',
+    /renderShows\(shows\);/.test(oj));
+  t('release settings this page has no field for are carried through',
+    /\.\.\.\(now\.release \|\| \{\}\)/.test(oj));
 }
 
 // ------------------------------------------------- languages of one film

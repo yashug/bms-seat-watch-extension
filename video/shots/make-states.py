@@ -167,7 +167,7 @@ BASE_OPTIONS = {
                 "defaultVenues": {"HYD": ["ALUC", "AMBH"]}},
     "releases": [], "shows": [{}],
     "telegram": {"botToken": "", "chatId": ""},
-    "defaults": {"minAdjacent": 2, "maxOffCentre": None, "minFromScreen": None},
+    "defaults": {"minAdjacent": 2, "maxOffCentre": None, "skipRows": None},
 }
 
 
@@ -305,11 +305,12 @@ STATES = [
   ("opt-seats-loose", 'options.html', options(defaults={"minAdjacent": 2}),
        'tab=seats', (1040, 0), SEAT_RECTS),
   ("opt-seats-tight", 'options.html',
-       # 0.33 and not 0.25: skipfront is a <select> whose options are 0.2, 0.33
-       # and 0.5, so a value that is merely plausible renders as an empty box —
-       # which is what the video showed for eleven seconds before anyone
-       # noticed. Fixture values for a <select> have to be options.
-       options(defaults={"minAdjacent": 4, "maxOffCentre": 0.5, "minFromScreen": 0.33}),
+       # skipfront is a <select>, so the fixture has to name a row count it
+       # actually offers — a value that is merely plausible renders as an empty
+       # box, which is what the video showed for eleven seconds before anyone
+       # noticed. (The page now adds an option for an unknown count rather than
+       # showing nothing, but a fixture should still picture the real choices.)
+       options(defaults={"minAdjacent": 4, "maxOffCentre": 0.5, "skipRows": 5}),
        'tab=seats', (1040, 0), SEAT_RECTS),
 
   # ---- release watch, tall -------------------------------------------------

@@ -84,6 +84,9 @@
   .blocks .price { color: var(--ink-2); }
 
   .quiet-line { color: var(--ink-2); font-size: 12px; margin-bottom: 11px; }
+  /* A filter quietly excluding everything is worth a colour — it reads as a
+     setting to revisit, not as the hall being full. */
+  .quiet-line.warn { color: #C0492F; }
   /* Says what is still happening, not just what stopped — checks continue. */
   .napping { color: var(--ink-2); font-size: 12px; margin-bottom: 11px;
              padding: 7px 10px; border-radius: 7px; background: var(--sunk); }
@@ -103,6 +106,23 @@
   .empty p { margin: 0 0 16px; color: var(--ink-2); font-size: 12px; line-height: 1.55; }
   .empty b { color: var(--open); font-weight: 700; }
 
+  /* --- what's new ----------------------------------------------------- */
+  /* One line, once, in the amber the release half wears everywhere else. It
+     sits above everything because it is about something the user does not know
+     is there — and it goes away for good the moment it is acted on. */
+  /* `display: flex` is an author rule and outranks the user agent's
+     [hidden] { display: none }, so without this the bar shows as an empty
+     amber strip for everyone who has no notice waiting — which is everyone,
+     most of the time. Same fix as .panel[hidden] on the settings page. */
+  .new[hidden] { display: none; }
+  .new { display: flex; align-items: center; gap: 10px;
+         padding: 10px 14px; background: #FDF6E9;
+         border-bottom: 1px solid rgba(185, 130, 42, .28); }
+  .new .msg { flex: 1; min-width: 0; font-size: 12px; line-height: 1.35; color: #6B4A10; }
+  .new .msg b { color: #4A330A; font-weight: 650; }
+  .new button { flex: none; padding: 5px 9px; font-size: 11px; }
+  .new .x { padding: 5px 7px; color: var(--ink-3); }
+
   /* --- upcoming ------------------------------------------------------- */
   /* Films being watched for a release, above the seat cards. They are the
      earlier half of the same story — you watch a film until it goes on sale,
@@ -118,6 +138,9 @@
                  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .film .sub { margin-top: 3px; color: var(--ink-3); font-size: 11px;
                overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* The languages this watch covers, one step quieter than the status line
+     above it — a fact about the film, not about the check. */
+  .film .sub.langs { margin-top: 2px; opacity: .8; }
   /* An amber dot for a watch that is asleep, green once it is polling — the
      same language as the header pip, so one glance reads both. */
   .film .dot { width: 6px; height: 6px; border-radius: 50%; flex: none;
@@ -138,6 +161,8 @@
     <span class="eyebrow" id="mode">Watching</span>
     <span class="eyebrow count" id="tally"></span>
   </div>
+
+  <div class="new" id="new" hidden></div>
 
   <div class="up" id="up" hidden></div>
 
