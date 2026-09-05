@@ -60,7 +60,7 @@ t('listing names this exact package', listing.includes(`seat-watch-${mf.version}
 // 1.4.0 is in the list from the moment it was UPLOADED, not from when it goes
 // live: the store rejects a version it already holds, and one sitting in review
 // is already held.
-const PUBLISHED = ['1.2.0', '1.3.0', '1.4.0'];
+const PUBLISHED = ['1.2.0', '1.3.0', '1.4.0', '1.4.1'];
 t('version is not one already published',
   !PUBLISHED.includes(mf.version), 'the store rejects a repeat version');
 
