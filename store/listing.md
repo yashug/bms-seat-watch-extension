@@ -359,7 +359,7 @@ for a reason that has nothing to do with your code.
 ### 3. Build the package
 
 ```sh
-zip -r seat-watch-1.4.1.zip . \
+zip -r seat-watch-1.4.2.zip . \
   -x '.*' -x '__MACOSX*' -x 'verify.mjs' -x 'store/*' -x 'icons/*' \
   -x 'docs/*' -x 'probes/*' -x 'promo/*' -x 'video/*' -x 'package.json' \
   -x 'README.md' -x '*.zip' -x '.DS_Store' -x '*/.DS_Store'
@@ -438,7 +438,32 @@ requested up front, and Chrome asks per address at the moment one is pasted.
 
 This is an update, not a first submission, so most of the form is already filled in.
 
-#### 1.4.1 — the current one
+#### 1.4.2 — the current one
+
+| Field | Why |
+|---|---|
+| **Package** | `seat-watch-1.4.2.zip` |
+| **Description** | Add the two fix lines below to the changelog |
+| **Everything else** | Unchanged |
+
+Bug fixes found by running 1.4.1 against a real release week. No new permission,
+no new content script, no new host.
+
+- **A watch could alert for the wrong film.** A film's identity is its EventGroup, and
+  that group is read off the film's own page. A fetch that answered with something else —
+  a redirected address, a listing page — handed the watch another film's group, and the
+  watch then alerted for that film, in every language, under the right film's name. The
+  page is now checked to be the film's own before anything is believed of it, and a
+  listing whose address disagrees with the watch's is refused even if the group matches.
+- **Premiere dates read the wrong day.** BookMyShow answers a date it has no showtimes
+  for with the day it does have, unflagged. A premiere watch asks about exactly such a
+  date on every check, so that evening's listings were being read as the premiere's.
+  Rows are now kept only if they carry the date that was asked for.
+- **Desktop alerts say when they fail.** Both notification calls read Chrome's error only
+  to discard it, so a refused notification left no trace. Settings → Alerts now has a
+  test button that distinguishes Chrome refusing, the OS suppressing, and it working.
+
+#### 1.4.1 — what it fixed
 
 | Field | Why |
 |---|---|

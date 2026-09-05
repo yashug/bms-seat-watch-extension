@@ -22,6 +22,23 @@ draws its rows the other way up would trim the back of the hall instead of the f
 an alert looks identical either way. Paste it into the console of a seat-layout page once
 the seats have drawn.
 
+[`probe-watch.js`](probe-watch.js), [`probe-byvenue.js`](probe-byvenue.js) and
+[`probe-upcoming.js`](probe-upcoming.js) are the three that diagnosed the wrong-film alert
+on 2026-09-05 — a Sardar 2 watch carrying Mirzapur's group. Run them in that order when a
+release alert names the wrong film: what the watch believes, what byvenue sent, what the
+bell would have sent. The conclusion is in FINDINGS.md.
+
+[`probe-anytheatre.js`](probe-anytheatre.js) exercises the path a watch with no cinemas
+takes — one buytickets page per listing, read three-valued. It is the least-tested path in
+the extension and the one most watches fall into, and its failure mode is silence: a
+listing that cannot be read is `unknown`, which never fires and never complains.
+
+[`probe-seatstatus.js`](probe-seatstatus.js) counts the seat statuses on a rendered map.
+The seat watcher treats everything that is not status 2 as free, and only 1, 2 and 4 have
+ever been observed — a status BookMyShow uses for a seat you cannot actually buy would be
+alerted as free. Run it on a busy show if seat alerts ever name seats that turn out to be
+gone.
+
 [`health-check.js`](health-check.js) is the only other script still worth running. Paste it
 into the service worker console when release watches stop firing, before assuming the
 bug is in the extension. It checks the four calls the feature depends on and names

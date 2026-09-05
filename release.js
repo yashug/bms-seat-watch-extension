@@ -397,6 +397,23 @@ export function matchesFilm(child, watch) {
 }
 
 /**
+ * Why a row matched — 'group' or 'code' — or null if it did not.
+ *
+ * Same order of decision as `matchesFilm`, and it exists for the case that
+ * cannot be reasoned about after the fact: an alert that went out for the wrong
+ * film. Knowing the match came from a group, and which group the row carried,
+ * separates BookMyShow filing a listing under another film's group from this
+ * extension adopting a code it should not have.
+ */
+export function matchReason(child, watch) {
+  const groups = knownGroups(watch);
+  if (groups.length && child?.group) {
+    return groups.includes(upper(child.group)) ? 'group' : null;
+  }
+  return child?.eventCode && knownCodes(watch).includes(upper(child.eventCode)) ? 'code' : null;
+}
+
+/**
  * The languages BookMyShow spells into a slug.
  *
  * Measured, not guessed: I'm Game's Telugu listing is `im-game-telugu` where the
@@ -450,6 +467,26 @@ export function variantCandidate(child, watch) {
   if (knownCodes(watch).includes(upper(child.eventCode))) return null;
   const mine = filmStem(watch.slug);
   return mine && mine === filmStem(child.slug) ? 'slug' : null;
+}
+
+/**
+ * Does this listing live at the same film's address?
+ *
+ * BookMyShow spells a language into the slug and leaves the stem alone —
+ * `im-game` / `im-game-telugu`, `mirzapur-the-movie` / `mirzapur-the-movie-telugu`.
+ * Measured on both films, and it is the one identity signal that does not
+ * depend on the group being right.
+ *
+ * So it is the backstop for a watch whose group is wrong: matching says a row
+ * belongs to this film, and this asks whether the row's own address agrees. A
+ * row that names no slug cannot disagree — missing data is not evidence — and
+ * a watch with no slug of its own has nothing to compare against.
+ */
+export function sameFilmSlug(child, watch) {
+  const mine = filmStem(watch?.slug);
+  const theirs = filmStem(child?.slug);
+  if (!mine || !theirs) return true;
+  return mine === theirs;
 }
 
 /**
@@ -533,8 +570,23 @@ export function bookingSignal(html) {
  * occasionally bind a watch to the wrong film, and the failure would look like
  * the film simply never going on sale.
  */
-export function parseFilmPage(html, slug) {
+export function parseFilmPage(html, slug, eventCode = null) {
   const text = String(html || '');
+  // Is this even the page that was asked for?
+  //
+  // The group is taken as the most frequent EG in the text, which is sound on a
+  // film's own page and nonsense on any other. A fetch does not have to fail to
+  // return the wrong thing: BookMyShow answers a dead film address with a
+  // listing page, and a listing page is full of other films' groups — so the
+  // heuristic quietly binds the watch to whichever film that page pushes hardest.
+  // That is not theoretical: a Sardar 2 watch spent a week carrying Mirzapur's
+  // EG00415918 and alerted, in two languages, for Mirzapur.
+  //
+  // A film page always names its own listing — the address it was fetched by is
+  // in the canonical link, the analytics and every book-tickets link on it. So
+  // if the code is not in the text, nothing here is about the film that was
+  // asked for, and nothing on the page may be believed.
+  const isFor = !eventCode || text.toUpperCase().includes(String(eventCode).toUpperCase());
   const counts = new Map();
   for (const eg of text.match(/EG\d{6,}/g) || []) counts.set(eg, (counts.get(eg) || 0) + 1);
   const group = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
@@ -544,7 +596,16 @@ export function parseFilmPage(html, slug) {
   const raw = /<title>([^<]{2,160})</.exec(text)?.[1]?.split(/\s+[|–—-]\s+/)[0];
   const title = raw ? (cleanTitle(raw) || null) : null;
 
+  if (!isFor) {
+    // Deliberately not "some of it": a page that is not this film's is not a
+    // better source of a release date or a title than of a group, and a
+    // half-believed page is how a watch ends up part one film and part another.
+    return { isFor: false, group: null, releaseDate: null, title: null,
+             booking: 'unknown', listings: [] };
+  }
+
   return {
+    isFor: true,
     group,
     releaseDate: iso ? dateCodeFromIso(iso[1]) : null,
     title,
@@ -669,8 +730,13 @@ const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
  * The upcoming-movies listing. Every card's identifiers live in the analytics
- * object BookMyShow attaches for its own tracking, which is the only place on
+ * object BookMyShow attaches for its own tracking, which was the only place on
  * that page carrying the group code — the visible card markup does not.
+ *
+ * Measured 2026-09-05: no card on that page carries a group any more, so this
+ * returns codes and titles and `group: null`. Variant discovery through it is
+ * correspondingly weaker — a card with no group cannot match a watch by group,
+ * and only its slug can still recognise it.
  */
 export function parseUpcoming(html) {
   const data = nextData(html);

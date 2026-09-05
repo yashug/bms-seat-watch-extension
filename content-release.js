@@ -90,8 +90,15 @@ function city() {
  * The group is what a watch is keyed on — a film has one group and several
  * event codes, so a watch bound to the code visible on a card would miss the
  * variant that actually goes on sale. Nothing in the rendered card markup
- * carries it; the only copy on the page is inside the analytics payload
+ * carries it; the only copy on the page was inside the analytics payload
  * BookMyShow attaches for its own tracking, so that is what gets read.
+ *
+ * Measured 2026-09-05: that payload now carries the group for NO film on the
+ * page — 190 cards, not one `event_group`. This keeps working because the
+ * worker reads the film's own page when the bell sends no group, but it means
+ * that fetch is now the only source of a watch's identity rather than the
+ * second of two. Worth re-running probes/probe-upcoming.js before assuming this
+ * index is dead for good; the shape of that state is not ours and moves.
  */
 function groupIndex() {
   if (groupIndex.cached) return groupIndex.cached;

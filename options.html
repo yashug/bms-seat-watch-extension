@@ -680,6 +680,17 @@
 
   <div class="panel" id="panel-alerts" role="tabpanel" aria-labelledby="tab-alerts" hidden>
   <section>
+      <span class="eyebrow">Desktop alerts</span>
+      <p class="lede">On by default and the one channel that needs no setup — which is why
+         it is the one nobody notices has stopped. Chrome and macOS can both refuse a
+         notification silently, so this fires one on demand.</p>
+      <button id="notifyTest">Show a test notification</button>
+      <div class="hint">Nothing appears? Chrome's own notification permission is in
+        <b>System Settings → Notifications → Chrome</b> on a Mac, and a Focus mode will hold
+        them back without telling anyone. Telegram and webhooks are unaffected either way.</div>
+    </section>
+
+  <section>
       <span class="eyebrow">Webhook</span>
       <p class="lede">Optional — desktop notifications work on their own. This is the
          quickest way to get alerts onto your phone: one address, no bot to create.</p>

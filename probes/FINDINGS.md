@@ -252,3 +252,120 @@ data, from addresses under the film's slug stem, from rows already matched in a
 byvenue response, and from the city's upcoming list. Matching runs on the group
 first, which is sound across languages; the slug stem is the net for a watch
 whose group could not be read.
+
+## byvenue answers for the day it has — measured 2026-09-05 (probe-byvenue.js, HYD)
+
+The buytickets page ignoring its date was already recorded above. **byvenue does
+something worse: it answers, with a different day.**
+
+A request for ALUC on `20260909` — a premiere date with no showtimes yet —
+returned four films, and every row carried `Date: "20260905"`:
+
+| child | film | group | language |
+|---|---|---|---|
+| ET00417686 | Mirzapur: The Movie | EG00415918 | Hindi |
+| ET00509671 | Ramba Oorvasi Menaka | EG00506568 | Telugu |
+| ET00513073 | Irumudi | EG00485290 | Telugu |
+| ET00511702 | I'm Game | EG00470725 | Telugu |
+
+That is that evening's listing at that cinema, not the premiere's. No error, no
+empty response, no flag — the requested date simply does not appear anywhere in
+the answer. Every group covered exactly one title, so the grouping itself is
+sound; it is the *day* that is not what was asked for.
+
+This matters most exactly where release watching lives. A premiere watch asks
+about a date with nothing on it — that is the whole point of asking — so it gets
+this answer on every check until the day booking actually opens. Read as if it
+were the day requested, tonight's listings become "Premiere booking open" for a
+film that has not opened at all, at cinemas that are merely showing something.
+
+**What was shipped against it:** the venue check keeps only rows whose own
+`Date` is the date it asked for, and counts the rest as `offDate` on the watch's
+last check. Rows for another day are not marked seen, so the real day can still
+ring. `parseByVenue` already carried each row's own date; nothing was reading it.
+
+## A watch can carry another film's group — diagnosed 2026-09-05
+
+A Sardar 2 watch alerted twice, for **Mirzapur: The Movie** — Hindi `ET00417686`
+and Telugu `ET00510304` — at both cinemas that were showing it, under the name
+"Sardar 2". The name comes from the film page and the slug, never from the
+group, so nothing about the alert looked wrong until its link was followed.
+
+Traced with `probe-watch.js`, `probe-byvenue.js` and `probe-upcoming.js`:
+
+- The watch matched on its **group**, and both Mirzapur listings share
+  `EG00415918`. One wrong group explains both alerts and both languages.
+- The **upcoming list carries no group** for that film (`pairings: 0`), so the
+  bell sent none — every group there comes from the film's own page.
+- The **film page is clean**: `EG00438177` ×6, the only EG on it.
+
+Which leaves one route: the page fetched at bell time was not that page. A fetch
+does not have to fail to return the wrong thing — a dead or redirected film
+address answers with a listing page, and a listing page is full of other films'
+groups, so "most frequent EG" takes whichever film that page pushes hardest.
+
+**What was shipped against it**
+
+1. `parseFilmPage(html, slug, eventCode)` returns `isFor: false` — and no group,
+   date, title or listings — unless the page names the listing it was fetched
+   for. A film page always does: the code is in its canonical link, its
+   analytics and every book-tickets link on it. `addRelease` and `backfillWatch`
+   both refuse a page that fails this.
+2. `sameFilmSlug()` is the backstop for a watch whose group is already wrong.
+   BookMyShow spells a language into the slug and leaves the stem alone —
+   `im-game` / `im-game-telugu`, and `mirzapur-the-movie` /
+   `mirzapur-the-movie-telugu` — so a matched row whose stem disagrees is not
+   this film. Such rows are refused, kept on `st.last.wrongFilm`, and the watch
+   says so in words rather than going quiet.
+3. `learnVariants` applies the same test before adopting, so a wrong group
+   cannot grow into a permanent set of wrong event codes.
+
+## The upcoming list no longer carries groups — measured 2026-09-05
+
+`probe-upcoming.js` over every card on `upcoming-movies-hyderabad`: **190 films,
+not one `event_group`.** Every card returns `pairings: 0`, and title and language
+come back empty with it.
+
+That payload was the bell's only source for a film's group. It is now dead, so
+**the film-page fetch is the sole source of a watch's identity** rather than the
+second of two — which is exactly the fetch that handed a Sardar 2 watch
+Mirzapur's group. The guard shipped for that is therefore load-bearing, not
+belt-and-braces.
+
+Consequences worth knowing:
+
+- Every new watch is created group-less and gets its group from the film page,
+  at creation or on one of the next five checks (`backfillWatch`).
+- A watch whose page never reads matches on **one event code only**, and says so
+  after five tries. That is the degraded mode, and it is now the common failure
+  rather than a corner.
+- `discoverFromUpcoming` — variant discovery for a watch with no cinemas — reads
+  the same payload, so it can no longer recognise a sibling listing by group. The
+  slug stem is all it has left there.
+
+Checked again the same day for a rename rather than a removal: the raw state
+contains **zero `EG\d{6,}` codes**, under any key (`egCodesInState: 0`,
+`groupKeysInState: []`). It is not hiding under a new name — it is not there.
+
+One consequence was acted on: `addRelease` now lets the verified film page
+decide the group rather than preferring whatever the bell sent. The bell's group
+used to come from this state and could only be confirmed by the page; what
+reaches it now comes from counting EG codes on a *rendered* film page, where
+client-side "you might also like" rails put other films' groups in the running.
+The fetched page has no rails and is checked to be the film's own, so it is the
+better of the two.
+
+Re-run the probe before treating any of this as permanent: the shape of that
+state is not ours.
+
+## Seat statuses seen on a real map — 2026-09-05 (probe-seatstatus.js)
+
+ALUC screen, Irumudi, 647 seats: **status 2 ×526** (Booked / Held) and
+**status 1 ×121** (Available). Nothing else. `seatType` agreed with the number in
+both cases, and the extension would have called exactly the 121 free.
+
+One hall on one night is not proof that no other value exists — status 4
+(bestseller) did not appear here at all, and it certainly does elsewhere — but
+`status !== 2 ⇒ free` held exactly on this sample, and no unknown value turned up.
+Worth re-running on a hall with blocked or companion seating before treating
+`SOLD` as a single value for good.

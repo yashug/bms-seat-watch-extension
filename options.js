@@ -609,6 +609,24 @@ $('save').onclick = async () => {
     : 'Saved');
 };
 
+$('notifyTest').onclick = async (e) => {
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  const res = await chrome.runtime.sendMessage({ type: 'testNotify' });
+  btn.disabled = false;
+  // Chrome accepting the notification is not the same as you seeing it — it can
+  // be accepted and then held back by the OS — so the wording claims only what
+  // is actually known here.
+  // Three different failures, three different things to go and do. "It didn't
+  // work" would send you to the wrong one of them.
+  if (res?.level === 'denied') {
+    return flash('Chrome has notifications switched off for extensions — turn them back on '
+               + 'at chrome://settings/content/notifications', true);
+  }
+  if (!res?.ok) return flash(res?.error || 'Chrome refused to show it', true);
+  flash('Sent — if nothing appeared, your Mac is holding it back, not Chrome');
+};
+
 $('hookTest').onclick = async () => {
   const url = $('hook').value.trim();
   if (!url) return flash('Paste a webhook address first', true);

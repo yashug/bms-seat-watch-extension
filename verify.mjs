@@ -800,59 +800,40 @@ t('the notification is clickable', /notifications\.onClicked\.addListener/.test(
 t('it carries action buttons', /buttons: \[\{ title: 'Open seats' \}/.test(bg));
 t('buttons are wired', /notifications\.onButtonClicked\.addListener/.test(bg));
 t('the show URL is the notification id, so it survives a worker restart',
-  /notifications\.create\(show\.url,/.test(bg));
+  /notify\(show\.url,/.test(bg));
 t('the alert waits for you rather than fading', /requireInteraction: true/.test(bg));
 t('clicking opens the seat map', /function openSeats\(url\)[\s\S]{0,140}tabs\.create/.test(bg));
 
-console.log('\nwebhooks');
+// Both notification calls used to read chrome.runtime.lastError only to throw
+// it away — which is what stops Chrome logging it, and also what made "Telegram
+// arrived, the desktop stayed silent" impossible to diagnose from outside.
 {
-  const shape = new Function(`${grabFrom(bg, 'webhookRequest')}; return webhookRequest;`)();
-  const of = (url) => JSON.parse(shape(url, 'body text', 'Seats open').body || '{}');
-
-  t('a Discord webhook gets Discord\'s shape',
-    of('https://discord.com/api/webhooks/123/abc').content === '**Seats open**\nbody text');
-  t('the discordapp.com alias is recognised too',
-    of('https://discordapp.com/api/webhooks/123/abc').content !== undefined);
-  t('ntfy gets the plain body with the title in a header',
-    shape('https://ntfy.sh/my-topic', 'body text', 'Seats open').body === 'body text' &&
-    shape('https://ntfy.sh/my-topic', 'body text', 'Seats open').headers.Title === 'Seats open');
-  t('a self-hosted ntfy is recognised by its host, not the exact domain',
-    shape('https://ntfy.example.org/topic', 'x', 'y').headers['Content-Type'] === 'text/plain');
-  t('anything else gets title and text kept apart',
-    of('https://hooks.zapier.com/abc').title === 'Seats open' &&
-    of('https://hooks.zapier.com/abc').text === 'body text');
-  t('a Discord URL is never mistaken for ntfy',
-    shape('https://discord.com/api/webhooks/1/2', 'x', 'y').headers['Content-Type'] === 'application/json');
-
-  t('the plain build carries the link', /lines\.push\(show\.url\)/.test(bg));
-  t('each channel is attempted separately',
-    /catch \(e\) \{ st\.telegramError =/.test(bg) && /catch \(e\) \{ st\.webhookError =/.test(bg));
-  t('stale channel errors are cleared before each attempt',
-    /delete st\.telegramError;\s*\n\s*delete st\.webhookError;/.test(bg));
-  t('Telegram is skipped when it is not configured',
-    /if \(cfg\.telegram\?\.botToken && cfg\.telegram\?\.chatId\)/.test(bg));
-  t('the desktop notification fires whatever the remote channels do',
-    /desktopNotify\(show, data, fresh\);\s*\n\s*\}/.test(bg));
-
-  const optional = mf.optional_host_permissions || [];
-  t('arbitrary hosts are optional, not demanded at install', optional.includes('https://*/*'));
-  t('no wildcard host sits in the required list',
-    !(mf.host_permissions || []).some(h => /^\*|\/\/\*\//.test(h)));
-  const oj = readFileSync(here('options.js'), 'utf8');
-  t('permission is asked for one origin, not all of them',
-    /new URL\(url\)\.origin \+ '\/\*'/.test(oj) && /permissions\.request\(\{ origins: \[origin\] \}\)/.test(oj));
-  t('http addresses are refused', /The address has to start with https:\/\//.test(oj));
-  t('a declined prompt saves nothing', /Chrome declined access to that address — nothing saved/.test(oj));
+  const src = grabFrom(bg, 'notify');
+  t('a refused notification is recorded, not swallowed',
+    /notifyError/.test(src) && /lastError/.test(src));
+  t('and a successful one clears the last failure', /notifyError: null/.test(src));
+  // One call site, so there is nowhere left for an error to be swallowed —
+  // asserted on the calls rather than on the prose, which mentions the old form.
+  t('every desktop alert goes through the one place that checks for a failure',
+    (bg.match(/chrome\.notifications\.create\(/g) || []).length === 1);
+  t('both alerts go through it',
+    /notify\(show\.url,/.test(bg) && /notify\(RELEASE_NOTIF \+ notifKey/.test(bg));
+  t('a throw from notifications.create is recorded too, not lost',
+    /catch \(e\) \{[\s\S]{0,220}notifyError/.test(src));
+  t('the settings page can fire one on demand', /msg\.type === 'testNotify'/.test(bg));
+  {
+    const oh = readFileSync(here('options.html'), 'utf8');
+    const oj = readFileSync(here('options.js'), 'utf8');
+    t('and has a button to do it', /id="notifyTest"/.test(oh) && /\$\('notifyTest'\)\.onclick/.test(oj));
+    // Chrome accepting a notification is not the same as the person seeing it.
+    t('which claims only what it actually knows',
+      /holding it back, not Chrome/.test(oj));
+    t('and names Chrome\'s own switch when that is what is off',
+      /getPermissionLevel/.test(bg) && /chrome:\/\/settings\/content\/notifications/.test(oj));
+    t('and says where the OS keeps that permission',
+      /System Settings → Notifications/.test(oh));
+  }
 }
-
-console.log('\nalerts lead somewhere');
-t('the notification is clickable', /notifications\.onClicked\.addListener/.test(bg));
-t('it carries action buttons', /buttons: \[\{ title: 'Open seats' \}/.test(bg));
-t('buttons are wired', /notifications\.onButtonClicked\.addListener/.test(bg));
-t('the show URL is the notification id, so it survives a worker restart',
-  /notifications\.create\(show\.url,/.test(bg));
-t('the alert waits for you rather than fading', /requireInteraction: true/.test(bg));
-t('clicking opens the seat map', /function openSeats\(url\)[\s\S]{0,140}tabs\.create/.test(bg));
 
 t('snoozing does not mark blocks as already told',
   /if \(!snoozed\) st\.notified = qualifying\.map\(runKey\);/.test(bg));
@@ -2216,6 +2197,14 @@ console.log('\nrelease wiring');
   t('a failed lookup still creates the watch',
     add.indexOf('lookupError') > 0 && add.indexOf('lookupError') < add.indexOf('setCfg'));
 
+  // The bell's group came from the listing page's own state, which no longer
+  // carries one for any film (probes/FINDINGS.md, 2026-09-05). Whatever reaches
+  // addRelease now comes from counting EG codes on a rendered film page, rails
+  // included; the page fetched here is checked to be the film's own first.
+  t('the verified page decides the group, not the bell', /watch\.group = page\.group \|\| watch\.group/.test(add));
+  t('and a page that is not this film decides nothing at all',
+    /if \(!page\.isFor\) throw/.test(add));
+
   // A bell clicked on BookMyShow carries no theatres; the picker in settings is
   // the only place they exist, so a new watch has to inherit them or the picker
   // is decorative.
@@ -2924,7 +2913,8 @@ console.log('\nlanguages of one film');
       'R', 'setCfg', 'sleep', 'jitter', 'notifyRelease', 'LOOKUP_TRIES', 'MAX_LISTINGS',
       'VARIANT_SCAN_MS', 'UPCOMING_TTL', 'upcomingCache',
       ['checkRelease', 'backfillWatch', 'learnVariants', 'discoverFromUpcoming',
-       'upcomingCards', 'byLanguage', 'knownLanguages', 'venueNames', 'adoptListings']
+       'upcomingCards', 'byLanguage', 'knownLanguages', 'venueNames', 'adoptListings',
+       'recordAlert']
         .map((n) => grabFrom(bg, n)).join('\n') + '\nreturn checkRelease;');
     const checkRelease = make(
       R, async () => {}, async () => {}, (x) => x,
@@ -3002,7 +2992,8 @@ console.log('\nlanguages of one film');
       'R', 'setCfg', 'sleep', 'jitter', 'notifyRelease', 'LOOKUP_TRIES',
       'VARIANT_SCAN_MS', 'UPCOMING_TTL', 'upcomingCache',
       ['checkRelease', 'backfillWatch', 'learnVariants', 'discoverFromUpcoming',
-       'upcomingCards', 'byLanguage', 'knownLanguages', 'venueNames', 'adoptListings']
+       'upcomingCards', 'byLanguage', 'knownLanguages', 'venueNames', 'adoptListings',
+       'recordAlert']
         .map((n) => grabFrom(bg, n)).join('\n') + '\nreturn checkRelease;');
     const checkRelease = make(
       R, async () => {}, async () => {}, (x) => x,
@@ -3032,6 +3023,21 @@ console.log('\nlanguages of one film');
       (st.last.languages || []).includes('Telugu') &&
       (st.last.languages || []).includes('Malayalam'));
     t('nothing unrelated was adopted', !R.knownCodes(watch).includes('ET00111111'));
+
+    // A wrong alert is a one-shot: `seen` stops it repeating, and pulling the
+    // bell to stop it deletes the state that would explain it. So what was sent
+    // is recorded where the next reading of the watch can still find it.
+    t('every alert sent is recorded on the watch', (st.alerts || []).length === 2);
+    t('and records which rule matched the listing',
+      (st.alerts || []).every((a) => a.why === 'group' || a.why === 'code'));
+    t('and both groups, so a row filed under the wrong film is visible',
+      (st.alerts || []).every((a) => a.watchGroup === watch.group && a.rowGroup));
+    t('and the listing it linked to',
+      (st.alerts || []).some((a) => a.eventCode === 'ET00511702' && a.slug === 'im-game-telugu'));
+    t('and the cinema and day it fired for',
+      (st.alerts || []).every((a) => /^ALUC\|\d{8}$/.test(a.venues[0] || '')));
+    t('only the last few are kept, not every alert forever',
+      String(grabFrom(bg, 'recordAlert')).includes('slice(-5)'));
     // Discovery costs no request of its own: it reads the response the check
     // was already making.
     t('and learning them cost no extra fetch',
@@ -3044,6 +3050,111 @@ console.log('\nlanguages of one film');
     t('a second check announces nothing new', fired.length === before);
 
     globalThis.fetch = realFetch;
+  }
+
+  // -- the date byvenue answers for is not the date it was asked ---------
+  //
+  // Measured 2026-09-05 against ALUC: a request for 20260909 — a premiere date
+  // with no showtimes yet — returned four films, every row dated 20260905.
+  // BookMyShow does not refuse a date it has nothing for; it answers with the
+  // day it does have. Read as if it were the day requested, tonight's listings
+  // become "Premiere booking open" for a film that has not opened at all.
+  {
+    const wrongDay = JSON.stringify({
+      ShowDetails: [{
+        Date: '20260905', Venues: { VenueCode: 'ALUC' },
+        Event: [
+          { EventTitle: "I'm Game", EventGroup: 'EG00470725', ChildEvents: [
+            { EventCode: 'ET00511702', EventGroup: 'EG00470725', EventLanguage: 'Telugu',
+              EventUrl: 'im-game-telugu',
+              ShowTimes: [{ SessionId: 's1', ShowTime: '10:00 AM' }] },
+          ] },
+        ],
+      }],
+    });
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => (String(url).includes('byvenue')
+      ? { ok: true, status: 200, text: async () => wrongDay }
+      : { ok: false, status: 404, text: async () => '' });
+
+    const fired = [];
+    const make = new Function(
+      'R', 'setCfg', 'sleep', 'jitter', 'notifyRelease', 'LOOKUP_TRIES',
+      'VARIANT_SCAN_MS', 'UPCOMING_TTL', 'upcomingCache',
+      ['checkRelease', 'backfillWatch', 'learnVariants', 'discoverFromUpcoming',
+       'upcomingCards', 'byLanguage', 'knownLanguages', 'venueNames', 'adoptListings',
+       'recordAlert']
+        .map((n) => grabFrom(bg, n)).join('\n') + '\nreturn checkRelease;');
+    const checkRelease = make(
+      R, async () => {}, async () => {}, (x) => x,
+      (watch, opened) => fired.push(opened), 5, 6 * 3600e3, 30 * 60e3, new Map());
+
+    const watch = watchOf({ venues: ['ALUC'] });
+    const cfg = { releases: [watch], releaseState: {},
+                  release: { premiereDays: 0, intervalMinutes: 10, dormancyDays: 7 },
+                  venueCache: { hyderabad: { venues: [{ code: 'ALUC', name: 'ALLU Cinemas' }] } } };
+    const st = await checkRelease(watch, cfg);
+
+    t('a row answered for another day announces nothing', fired.length === 0);
+    t('and is not recorded as seen, so the real day can still ring',
+      Object.keys(st.seen || {}).length === 0);
+    t('the check says it was answered about a different day', st.last.offDate === 1);
+    t('"nothing opened" and "answered about another day" stay distinguishable',
+      st.last.fired === 0 && st.last.offDate > 0);
+
+    globalThis.fetch = realFetch;
+  }
+
+  // -- a group that belongs to another film ------------------------------
+  //
+  // Measured 2026-09-05: a Sardar 2 watch carrying EG00415918 — Mirzapur's —
+  // alerted twice, for Mirzapur's Hindi and Telugu listings, at both cinemas
+  // that were showing it, under the name "Sardar 2". The title comes from the
+  // film page and the slug, never from the group, so nothing about the alert
+  // looked wrong until its link was followed.
+  //
+  // The bell sends no group for that film (the upcoming list carries none), so
+  // it came from the film page, whose EG count is only meaningful if the page
+  // is the film's own.
+  {
+    t('a page that does not name the listing is not believed',
+      R.parseFilmPage('<html>EG00415918 EG00415918 ET00417686</html>',
+                      'sardar-2', 'ET00440190').isFor === false);
+    t('and yields no group, date or title rather than another film\'s',
+      R.parseFilmPage('<title>Mirzapur</title>EG00415918 EG00415918',
+                      'sardar-2', 'ET00440190').group === null);
+    t('a page that does name it is read as before',
+      R.parseFilmPage('<title>Sardar 2</title>ET00440190 EG00438177 EG00438177',
+                      'sardar-2', 'ET00440190').group === 'EG00438177');
+    t('and a caller that asks for no code still gets an answer',
+      R.parseFilmPage('EG00438177', 'sardar-2').group === 'EG00438177');
+
+    // The backstop, for a watch whose group is already wrong.
+    const watch = { slug: 'sardar-2', group: 'EG00415918', eventCode: 'ET00440190' };
+    const mirzapur = { eventCode: 'ET00417686', group: 'EG00415918',
+                       slug: 'mirzapur-the-movie', language: 'Hindi' };
+    const mirzapurTelugu = { ...mirzapur, eventCode: 'ET00510304',
+                             slug: 'mirzapur-the-movie-telugu', language: 'Telugu' };
+    t('the wrong film matches on the wrong group, as it did', R.matchesFilm(mirzapur, watch));
+    t('but its address does not agree with the watch\'s', !R.sameFilmSlug(mirzapur, watch));
+    t('nor does the dub of the wrong film', !R.sameFilmSlug(mirzapurTelugu, watch));
+    t('a real dub does agree, which is the whole point of the stem',
+      R.sameFilmSlug({ slug: 'im-game-telugu' }, { slug: 'im-game' }));
+    t('a row with no address of its own is not excluded by it',
+      R.sameFilmSlug({ eventCode: 'ET1' }, { slug: 'im-game' }));
+    t('and neither is a watch that has no slug',
+      R.sameFilmSlug({ slug: 'anything' }, { eventCode: 'ET1' }));
+
+    const bgSrc = readFileSync(here('background.js'), 'utf8');
+    t('the check refuses to alert for a listing at another film\'s address',
+      /const mine = claimed\.filter\(\(c\) => R\.sameFilmSlug\(c, watch\)\)/.test(bgSrc));
+    t('and says so on the watch rather than staying silent',
+      /wrongFilm: wrongFilm\.length/.test(bgSrc) &&
+      /belonging to another film/.test(bgSrc));
+    t('a wrong group is not allowed to grow by adopting the wrong film\'s codes',
+      /if \(!R\.sameFilmSlug\(child, watch\)\) continue;/.test(bgSrc));
+    t('and a watch is not built from a page that answered for something else',
+      (bgSrc.match(/did not answer with this film/g) || []).length === 2);
   }
 }
 

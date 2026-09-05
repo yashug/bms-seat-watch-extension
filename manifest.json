@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Seat Watch for BookMyShow",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "Watches BookMyShow and tells you when seats open up on a show \u2014 or when booking opens for a film you're waiting on.",
   "permissions": [
     "alarms",

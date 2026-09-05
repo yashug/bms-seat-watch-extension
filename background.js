@@ -642,11 +642,39 @@ const SNOOZE_MINUTES = 15;
  * the service worker being torn down between the alert firing and you clicking
  * it, which an in-memory map would not.
  */
+/**
+ * Shows a desktop notification and remembers when Chrome refuses to.
+ *
+ * Both callers used to pass `() => void chrome.runtime.lastError` — reading the
+ * error only to discard it, which is what stops Chrome logging "unchecked
+ * runtime.lastError" and also what makes a silent extension impossible to
+ * diagnose. An alert that Telegram received and the desktop did not is a real
+ * state, and it left no trace anywhere.
+ *
+ * Nothing is thrown or retried: the alert has already gone out by other
+ * channels, and this is the one that is allowed to fail quietly. It just stops
+ * failing *invisibly*.
+ */
+function notify(id, options) {
+  try {
+    chrome.notifications.create(id, options, () => {
+      const err = chrome.runtime.lastError;
+      chrome.storage.local.set(err
+        ? { notifyError: { at: Date.now(), message: String(err.message || err).slice(0, 200) } }
+        : { notifyError: null });
+    });
+  } catch (e) {
+    chrome.storage.local.set({
+      notifyError: { at: Date.now(), message: String(e.message || e).slice(0, 200) },
+    });
+  }
+}
+
 function desktopNotify(show, data, fresh) {
   const top = fresh.slice(0, 3)
     .map(r => `Row ${r.row} ${r.nums[0]}–${r.nums[r.nums.length - 1]} (${r.size})`)
     .join('\n');
-  chrome.notifications.create(show.url, {
+  notify(show.url, {
     type: 'basic',
     iconUrl: 'icon128.png',
     title: `Seats open — ${show.label || data.title || 'BookMyShow'}`,
@@ -654,7 +682,7 @@ function desktopNotify(show, data, fresh) {
     priority: 2,
     requireInteraction: true,   // don't fade out while you're away from the desk
     buttons: [{ title: 'Open seats' }, { title: `Snooze ${SNOOZE_MINUTES}m` }],
-  }, () => void chrome.runtime.lastError);   // swallow "no buttons" on some builds
+  });
 }
 
 function openSeats(url) {
@@ -1077,8 +1105,24 @@ async function addRelease(entry) {
   if (watch.slug && watch.eventCode) {
     try {
       const page = R.parseFilmPage(
-        await R.fetchText(R.filmUrl(city.slug, watch.slug, watch.eventCode)), watch.slug);
-      watch.group = watch.group || page.group;
+        await R.fetchText(R.filmUrl(city.slug, watch.slug, watch.eventCode)),
+        watch.slug, watch.eventCode);
+      // A page that does not name this listing is some other page — a redirect,
+      // a listing page, a soft 404 — and taking a group off it is how a watch
+      // ends up alerting for another film under this film's name.
+      if (!page.isFor) throw new Error('that address did not answer with this film');
+      // The page wins over the bell, not the other way round.
+      //
+      // It used to be `watch.group || page.group`, because the bell read the
+      // group straight out of the listing page's own state and a second fetch
+      // could only confirm it. Measured 2026-09-05: that state carries no group
+      // for any film any more — not one EG code in the whole payload — so a
+      // group arriving from a bell now comes from the other reader, the count
+      // over a *rendered* film page, where client-side "you might also like"
+      // rails put other films' groups in the running. The page fetched here has
+      // no rails and has just been checked to be this film's, so it is the
+      // better of the two whenever both have an answer.
+      watch.group = page.group || watch.group;
       watch.releaseDate = watch.releaseDate || page.releaseDate;
       watch.title = watch.title || page.title || '';
       // The page links to the film's other languages often enough to be worth
@@ -1117,6 +1161,30 @@ async function addRelease(entry) {
  * The alert. Names the theatres, because "bookings are open" without them sends
  * you to look through a list you have already told this extension about.
  */
+/**
+ * What was sent, and on what evidence.
+ *
+ * A release alert is a one-shot: `seen` stops it repeating, so by the time
+ * anyone looks at a wrong alert the state that produced it has moved on — and
+ * removing the bell to stop it, which is the obvious thing to do, deletes that
+ * state outright. Five of these cost nothing and are the difference between
+ * diagnosing the next one and asking the user to catch it live.
+ */
+function recordAlert(st, watch, opened) {
+  st.alerts = [...(st.alerts || []), {
+    at: Date.now(),
+    language: opened.language || '',
+    eventCode: opened.eventCode || watch.eventCode || null,
+    slug: opened.slug || watch.slug || null,
+    // What the watch believed at the moment it fired, so a later reading of the
+    // watch cannot quietly disagree with the alert it explains.
+    watchGroup: watch.group || null,
+    rowGroup: opened.group || null,
+    why: opened.why || null,
+    venues: (opened.venues || []).map((v) => `${v.code}|${v.date}`),
+  }].slice(-5);
+}
+
 function notifyRelease(watch, opened, cfg) {
   // Grouped by day, because a premiere and release day are two different things
   // to decide about and a flat list of cinemas would not say which opened.
@@ -1141,7 +1209,7 @@ function notifyRelease(watch, opened, cfg) {
     ? `Premiere booking open — ${named}`
     : `Booking open — ${named}`;
 
-  chrome.notifications.create(RELEASE_NOTIF + notifKey(watch, opened), {
+  notify(RELEASE_NOTIF + notifKey(watch, opened), {
     type: 'basic',
     iconUrl: 'icon128.png',
     title: heading,
@@ -1149,7 +1217,7 @@ function notifyRelease(watch, opened, cfg) {
     priority: 2,
     requireInteraction: true,
     buttons: [{ title: 'Open BookMyShow' }],
-  }, () => void chrome.runtime.lastError);
+  });
 
   const link = releaseLink(watch, opened);
   // Where a language of its own could not be established, every listing the
@@ -1322,7 +1390,9 @@ async function backfillWatch(watch, st, cfg) {
   st.lookupTries = (st.lookupTries || 0) + 1;
   try {
     const page = R.parseFilmPage(
-      await R.fetchText(R.filmUrl(watch.citySlug, watch.slug, watch.eventCode)), watch.slug);
+      await R.fetchText(R.filmUrl(watch.citySlug, watch.slug, watch.eventCode)),
+      watch.slug, watch.eventCode);
+    if (!page.isFor) throw new Error('that address did not answer with this film');
     const before = `${watch.group}|${watch.releaseDate}|${watch.title}`;
     const learned = adoptListings(watch, page.listings);
     // Mutated in place: this is the same object the caller is checking, so the
@@ -1353,17 +1423,43 @@ async function checkRelease(watch, cfg) {
     if (watch.venues?.length) {
       const names = venueNames(cfg, watch.citySlug);
       const opened = [];
+      // Rows byvenue returned for a day other than the one requested. Counted
+      // rather than merely dropped: "nothing opened" and "the API answered
+      // about a different day entirely" look identical from the outside.
+      let offDate = 0;
+      // Rows that matched this watch but live at another film's address.
+      const wrongFilm = [];
       for (const venueCode of watch.venues) {
         for (const date of dates) {
           const body = await R.fetchJson(R.byVenueApi(venueCode, date, watch.regionCode));
-          const rows = R.parseByVenue(body, venueCode);
+          // byvenue answers with whatever it has rather than with what was
+          // asked for. Measured 2026-09-05: a request for 20260909 at ALUC came
+          // back with four films, every row dated 20260905 — that day's
+          // listings, not the premiere's. Rows for another date say nothing
+          // about this one, and reading them as if they did announces a film
+          // that is merely playing tonight as a premiere that just opened.
+          const answered = R.parseByVenue(body, venueCode);
+          const rows = answered.filter((r) => !r.date || r.date === date);
+          offDate += answered.length - rows.length;
           // Before matching, learn. A dub listed under its own group is not a
           // match yet and never becomes one on its own — this is the step that
           // turns it into part of the watch, and it has to run against the same
           // response the match reads or the language is missed for one whole
           // cycle at the venue that had it first.
           await learnVariants(rows, watch, cfg);
-          const mine = rows.filter((c) => R.matchesFilm(c, watch));
+          // Matching says the row belongs to this film; the row's own address
+          // is asked whether it agrees. It is the backstop for a watch whose
+          // group is wrong — the failure that produced two Mirzapur alerts
+          // under a Sardar 2 watch, at two cinemas, in two languages.
+          const claimed = rows.filter((c) => R.matchesFilm(c, watch));
+          const mine = claimed.filter((c) => R.sameFilmSlug(c, watch));
+          for (const c of claimed) {
+            if (R.sameFilmSlug(c, watch)) continue;
+            // Kept, not just counted: an alert this refused to send is the one
+            // thing worth being able to read afterwards.
+            wrongFilm.push({ eventCode: c.eventCode, slug: c.slug, group: c.group,
+                             title: c.title || '', language: c.language || '' });
+          }
           for (const child of mine) {
             const key = R.seenKey(venueCode, child.eventCode, date);
             if (st.seen[key]) continue;
@@ -1371,6 +1467,13 @@ async function checkRelease(watch, cfg) {
             opened.push({ code: venueCode, name: names.get(venueCode) || venueCode,
                           shows: child.shows.length, language: R.languageLabel(child),
                           eventCode: child.eventCode, slug: child.slug || watch.slug,
+                          // The row's own group, and which rule let it in. An
+                          // alert that goes out for the wrong film cannot be
+                          // explained after the fact without these: a row
+                          // BookMyShow filed under this film's group and a code
+                          // this extension should never have adopted produce
+                          // the same wrong alert, and want opposite fixes.
+                          group: child.group || null, why: R.matchReason(child, watch),
                           date, premiere: R.isPremiere(date, watch),
                           when: R.dateLabel(date, watch) });
           }
@@ -1381,9 +1484,22 @@ async function checkRelease(watch, cfg) {
                   dates: dates.length,
                   open: Object.keys(st.seen).length, fired: opened.length,
                   languages: knownLanguages(watch),
+                  // Not an error: it is the ordinary answer for a date that has
+                  // no showtimes yet, which is every date a premiere watch asks
+                  // about until the day it opens.
+                  offDate: offDate || undefined,
+                  // This one IS an error, and it is ours: the watch's group
+                  // matched a film that is not this film.
+                  wrongFilm: wrongFilm.length ? wrongFilm.slice(0, 3) : undefined,
                   // Worth surfacing on its own: a premiere opening is a
                   // different decision from release day opening.
                   premiere: opened.some((o) => o.premiere) || undefined };
+      if (wrongFilm.length) {
+        st.last.warn = `Matched ${wrongFilm.length} listing` +
+          `${wrongFilm.length === 1 ? '' : 's'} belonging to another film ` +
+          `(${wrongFilm[0].title || wrongFilm[0].slug}) — this watch's group code ` +
+          'looks wrong. Remove the bell and add it again.';
+      }
       if (!watch.group && (st.lookupTries || 0) >= LOOKUP_TRIES) {
         st.last.warn = 'Couldn’t read this film’s group code, so it is matched on ' +
                        'one event code only — a different language or format may be missed.';
@@ -1391,7 +1507,10 @@ async function checkRelease(watch, cfg) {
       // One alert per language, not one per watch. They are separate decisions
       // — the Telugu show at your cinema and the Malayalam one are different
       // bookings — and a single merged alert can only carry one link.
-      for (const group of byLanguage(opened)) notifyRelease(watch, group, cfg);
+      for (const group of byLanguage(opened)) {
+        recordAlert(st, watch, group);
+        notifyRelease(watch, group, cfg);
+      }
     } else if (!watch.slug || !watch.eventCode) {
       // The any-theatre check reads the film's own page, and that address needs
       // both halves. Without them there is no check to make — say so plainly
@@ -1407,7 +1526,8 @@ async function checkRelease(watch, cfg) {
       await discoverFromUpcoming(watch, st, cfg);
 
       const page = R.parseFilmPage(
-        await R.fetchText(R.filmUrl(watch.citySlug, watch.slug, watch.eventCode)), watch.slug);
+        await R.fetchText(R.filmUrl(watch.citySlug, watch.slug, watch.eventCode)),
+        watch.slug, watch.eventCode);
       if (adoptListings(watch, page.listings)) await setCfg({ releases: cfg.releases });
 
       const codes = R.knownCodes(watch).slice(0, MAX_LISTINGS);
@@ -1416,7 +1536,10 @@ async function checkRelease(watch, cfg) {
       if (codes.length < 2) {
         const signal = page.booking;
         st.last = { at: now, mode: 'any', signal, languages: knownLanguages(watch) };
-        if (signal === 'open' && st.signal !== 'open') notifyRelease(watch, {}, cfg);
+        if (signal === 'open' && st.signal !== 'open') {
+          recordAlert(st, watch, {});
+          notifyRelease(watch, {}, cfg);
+        }
         if (signal === 'unknown') {
           st.last.warn = 'BookMyShow page no longer says either "Book tickets" or ' +
                          '"Releasing on" — this watch cannot tell if booking opened.';
@@ -1461,11 +1584,14 @@ async function checkRelease(watch, cfg) {
           st.last.signal = page.booking;
           st.last.warn = 'Couldn’t read any listing page, so this watch is back to ' +
                          'the film’s own page and cannot tell the languages apart.';
-          if (page.booking === 'open' && st.signal !== 'open') notifyRelease(watch, {}, cfg);
+          if (page.booking === 'open' && st.signal !== 'open') {
+            recordAlert(st, watch, {});
+            notifyRelease(watch, {}, cfg);
+          }
           if (lastError) st.last.error = String(lastError.message || lastError).slice(0, 120);
         }
         st.signal = st.last.signal;
-        for (const f of fired) notifyRelease(watch, f, cfg);
+        for (const f of fired) { recordAlert(st, watch, f); notifyRelease(watch, f, cfg); }
       }
     }
     st.fails = 0;
@@ -1512,6 +1638,8 @@ function byLanguage(opened) {
       String(a.date || '').localeCompare(String(b.date || '')))[0];
     g.eventCode = first?.eventCode || null;
     g.slug = first?.slug || null;
+    g.group = first?.group || null;
+    g.why = first?.why || null;
   }
   return [...out.values()];
 }
@@ -1533,6 +1661,11 @@ function byLanguage(opened) {
 async function learnVariants(rows, watch, cfg) {
   let changed = false;
   for (const child of rows) {
+    // A wrong group does not get to grow. Adoption is how one bad group becomes
+    // permanent: the row is matched, its code is written onto the watch, and
+    // from then on the watch answers to it whatever the group is later found
+    // to be. The row's own address has to agree first.
+    if (!R.sameFilmSlug(child, watch)) continue;
     if (!R.matchesFilm(child, watch) && !R.variantCandidate(child, watch)) continue;
     if (R.addVariant(watch, child)) changed = true;
   }
@@ -1851,6 +1984,31 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
       await setCfg({ shows: cfg.shows.filter(s => s.url !== msg.url), state });
       await refreshBadge();
       respond({ ok: true });
+    }
+    // Proves the desktop half on demand. "I got the Telegram alert but no
+    // notification" has three possible causes — Chrome, the OS, or us — and
+    // without a button that fires one on request, none of them can be told
+    // apart without waiting for a film to open.
+    else if (msg.type === 'testNotify') {
+      await chrome.storage.local.remove('notifyError');
+      notify('seatwatch-test', {
+        type: 'basic', iconUrl: 'icon128.png',
+        title: 'Seat Watch — test alert',
+        message: 'If you can read this, desktop alerts work.',
+        priority: 2,
+      });
+      // The callback lands after create() returns, so give it a moment before
+      // reporting — otherwise this always says it worked.
+      await sleep(400);
+      const { notifyError } = await chrome.storage.local.get('notifyError');
+      // Chrome's own switch for extension notifications, which is a different
+      // thing from the OS holding them back and needs a different answer. It is
+      // the one cause this can name outright rather than guess at.
+      const level = await new Promise((r) => {
+        try { chrome.notifications.getPermissionLevel(r); } catch { r('unknown'); }
+      });
+      respond({ ok: !notifyError && level !== 'denied', level,
+                error: notifyError?.message || null });
     }
     else if (msg.type === 'openSeats') { openSeats(msg.url); respond({ ok: true }); }
     else if (msg.type === 'snooze') {
